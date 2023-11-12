@@ -8,7 +8,7 @@ import { URLExt } from '@jupyterlab/coreutils';
 /**
  * The url for the default drive service.
  */
-const SERVICE_DRIVE_URL = 'api/contents';
+const SERVICE_DRIVE_URL = 'v2/';
 
 /**
  * The url for the file access.
