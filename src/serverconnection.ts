@@ -276,14 +276,14 @@ namespace Private {
 
     // Use explicit cache buster when `no-store` is set since
     // not all browsers use it properly.
-    const cache = init.cache ?? settings.init.cache;
-    if (cache === 'no-store') {
-      // https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest/Using_XMLHttpRequest#Bypassing_the_cache
-      url += (/\?/.test(url) ? '&' : '?') + new Date().getTime();
-    }
+    // const cache = init.cache ?? settings.init.cache;
+    // if (cache === 'no-store') {
+    //   // https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest/Using_XMLHttpRequest#Bypassing_the_cache
+    //   url += (/\?/.test(url) ? '&' : '?') + new Date().getTime();
+    // }
 
     const request = new settings.Request(url, { ...settings.init, ...init });
-
+   
     // Handle authentication. Authentication can be overdetermined by
     // settings token and XSRF token.
     let authenticated = false;
@@ -292,10 +292,10 @@ namespace Private {
       request.headers.append('Authorization', `token ${settings.token}`);
     }
     if (typeof document !== 'undefined' && document?.cookie) {
-      const xsrfToken = getCookie('_xsrf');
+      const xsrfToken = getCookie('plotly_csrf_on');
       if (xsrfToken !== undefined) {
         authenticated = true;
-        request.headers.append('X-XSRFToken', xsrfToken);
+        request.headers.append('x-csrftoken', xsrfToken);
       }
     }
 

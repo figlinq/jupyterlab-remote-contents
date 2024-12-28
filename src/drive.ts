@@ -113,16 +113,25 @@ export class Drive implements Contents.IDrive {
     localPath: string,
     options?: Contents.IFetchOptions
   ): Promise<Contents.IModel> {
-    let url = this._getUrl(localPath);
-    let params: PartialJSONObject = {};
-    if (options) {
-      // The notebook type cannot take a format option.
-      if (options.type === 'notebook') {
-        delete options['format'];
-      }
-      const content = options.content ? '1' : '0';
-      params = { ...options, content };
+    console.log('get options', options, 'localPath', localPath);
+    let url;
+    if(localPath === '') {
+      localPath = ['folders', 'home'].join('/');
+      url = this._getUrl(localPath);
+    } else {
+      url = this._getUrl(localPath);
     }
+    console.log('get url', url);
+    
+    const params: PartialJSONObject = {};
+    // if (options) {
+    //   // The notebook type cannot take a format option.
+    //   if (options.type === 'notebook') {
+    //     delete options['format'];
+    //   }
+    //   const content = options.content ? '1' : '0';
+    //   params = { ...options, content };
+    // }
 
     const settings = this.serverSettings;
     const response = await ServerConnection.makeRequest(url, {}, settings, params);
@@ -131,7 +140,10 @@ export class Drive implements Contents.IDrive {
       throw err;
     }
     const data = await response.json();
-    Private.validateContentsModel(data);
+    console.log('get data', data);
+    const data_transformed = Private.convertToJupyterApi(data);
+    console.log('get data_transformed', data_transformed);
+    Private.validateContentsModel(data_transformed);
     return data;
   }
 
@@ -171,19 +183,47 @@ export class Drive implements Contents.IDrive {
   async newUntitled(
     options: Contents.ICreateOptions = {}
   ): Promise<Contents.IModel> {
-    let body = '{}';
-    if (options) {
-      if (options.ext) {
-        options.ext = Private.normalizeExtension(options.ext);
-      }
-      body = JSON.stringify(options);
+    console.log('newUntitled options', options);
+
+    let args = options.path ? [options.path] : [];
+    let body: string | undefined;
+    var headers: HeadersInit | undefined;
+    if(options.type === 'notebook') {
+      args.push('jupyter-notebooks');
+      args.push('upload');
+      body = JSON.stringify({
+        "cells": [],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5
+      });
+      headers = {
+        'plotly-client-platform': 'web - jupyterlite',
+        'plotly-parent': '-1',
+        'plotly-world-readable': 'false',
+        'x-file-name': 'Untitled notebook.ipynb',
+        'content-type': 'application/json',
+      };
+    } else if (options.type === 'directory') {
+      args.push('folders');
+      body = JSON.stringify({
+        "parent": -1,
+        "path": "Unnamed Folder",
+      });
+      headers = {
+        'plotly-client-platform': 'web - jupyterlite',
+        'content-type': 'application/json',
+      };
     }
 
     const settings = this.serverSettings;
-    const url = this._getUrl(options.path ?? '');
+    const url = this._getUrl(...args);
+
+
     const init = {
       method: 'POST',
-      body
+      body,
+      headers,
     };
     const response = await ServerConnection.makeRequest(url, init, settings);
     if (response.status !== 201) {
@@ -191,7 +231,11 @@ export class Drive implements Contents.IDrive {
       throw err;
     }
     const data = await response.json();
-    Private.validateContentsModel(data);
+    
+    // Transform the API response to a Contents.IModel
+    const model = Private.transformApiResponseToContentsModel(data);
+    
+    Private.validateContentsModel(model);
     this._fileChanged.emit({
       type: 'new',
       oldValue: null,
@@ -576,4 +620,75 @@ namespace Private {
     validateProperty(model, 'id', 'string');
     validateProperty(model, 'last_modified', 'string');
   }
+
+  export function transformApiResponseToContentsModel(apiResponse: any): Contents.IModel {
+    const file = apiResponse.file;
+    file.path = 'test_folder'
+    console.log('transformApiResponseToContentsModel', file);
+    console.log('transformApiResponseToContentsModel', file.path);
+    const normalizedPath = file.path.startsWith('/') ? file.path.slice(1) : file.path;
+
+
+    const model:Contents.IModel = {
+      name: file.filename,
+      path: normalizedPath,
+      type: 'notebook',
+      created: file.creation_time,
+      last_modified: file.date_modified,
+      mimetype: 'application/x-ipynb+json',
+      content: JSON.parse(file.content), // Parse notebook content
+      format: 'json',
+      writable: ['write', 'admin'].includes(file.current_user_permission),
+    };
+    console.log('Final Contents.IModel:', model);
+    return model;
+  }
+
+  export function convertToJupyterApi(plotlyObject: any): any {
+    
+    function transformItem(item: any): any {
+        const itemType = item.filetype === "fold" ? "directory" : "file";
+        let mimetype = null;
+
+        if (item.filetype === "html_text") {
+            mimetype = "text/html";
+        } else if (item.filetype === "grid") {
+            mimetype = "application/json";
+        } else if (item.filetype === "jupyter_notebook") {
+            mimetype = "application/x-ipynb+json";
+        }
+
+        return {
+            name: item.filename || "",
+            path: item.filename || "",
+            last_modified: item.date_modified || new Date().toISOString(),
+            created: item.creation_time || new Date().toISOString(),
+            content: null,
+            format: null,
+            mimetype: mimetype,
+            size: 2401,
+            writable: true,
+            hash: null,
+            hash_algorithm: null,
+            type: itemType,
+        };
+    }
+
+    const transformedContent = (plotlyObject.children?.results || []).map(transformItem);
+    const name = plotlyObject.filename === 'home' ? "" : plotlyObject.filename || "";
+    return {
+        name,
+        path: "",
+        last_modified: new Date().toISOString(),
+        created: new Date().toISOString(),
+        content: transformedContent,
+        format: "json",
+        mimetype: null,
+        size: null,
+        writable: true,
+        hash: null,
+        hash_algorithm: null,
+        type: "directory",
+    };
+}
 }

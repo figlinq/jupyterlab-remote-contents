@@ -10,7 +10,6 @@ import { IFileBrowserFactory, Uploader } from '@jupyterlab/filebrowser';
 import { ITranslator } from '@jupyterlab/translation';
 
 import { listIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
-// import { FilenameSearcher, IScore, listIcon, folderIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
 
 import { ServerConnection } from './serverconnection';
 
@@ -23,11 +22,11 @@ const plugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab-remote-contents:plugin',
   requires: [IFileBrowserFactory, ITranslator],
   autoStart: true,
-  activate: (
+  activate: async (
     app: JupyterFrontEnd,
     browser: IFileBrowserFactory,
     translator: ITranslator
-  ) => {
+  ) => {    
     const { serviceManager } = app;
     const { createFileBrowser } = browser;
 
@@ -42,34 +41,12 @@ const plugin: JupyterFrontEndPlugin<void> = {
       // We don't want to restore old state, we don't have a drive handle ready
       restore: false
     });
-    widget.title.caption = trans.__('Remote Contents (not connected)');
     widget.title.icon = listIcon;
+    widget.title.caption = trans.__('Figlinq Contents');
 
-    // const connectToServerButton = new ToolbarButton({
-    //   icon: folderIcon,
-    //   onClick: async () => {
-    //     let serverUrl = prompt('Enter Jupyter server URL:', 'http://127.0.0.1:8000');
-
-    //     if (serverUrl) {
-    //       const parsedUrl = new URL(serverUrl);
-    //       const queryString = parsedUrl.search;
-    //       const queryParams = Object.fromEntries(parsedUrl.searchParams);
-    //       if (queryString) {
-    //         // remove query string from server URL
-    //         serverUrl = serverUrl.slice(0, -queryString.length);
-    //       }
-    //       drive.serverSettings.baseUrl = serverUrl;
-    //       drive.serverSettings.queryParams = queryParams;
-    //       console.log('Connecting to server:', serverUrl, queryParams);
-    //       widget.title.caption = trans.__(`Remote Contents at ${serverUrl}`);
-
-    //       // Go to root directory
-    //       widget.model.cd('/');
-    //     }
-    //   },
-    //   tooltip: trans.__('Connect to Jupyter Server')
-    // });
-
+    // Go to root directory
+    // widget.model.cd('/');
+    
     const createNewDirectoryButton = new ToolbarButton({
       icon: newFolderIcon,
       onClick: async () => {
@@ -88,25 +65,9 @@ const plugin: JupyterFrontEndPlugin<void> = {
       tooltip: trans.__('Refresh File Browser')
     });
 
-    // const searcher = FilenameSearcher({
-    //   updateFilter: (
-    //     filterFn: (item: string) => Partial<IScore> | null,
-    //     query?: string
-    //   ) => {
-    //     widget.model.setFilter(value => {
-    //       return filterFn(value.name.toLowerCase());
-    //     });
-    //   },
-    //   useFuzzyFilter: true,
-    //   placeholder: trans.__('Filter files by name'),
-    //   forceRefresh: true
-    // });
-
     widget.toolbar.insertItem(1, 'create-new-directory', createNewDirectoryButton);
     widget.toolbar.insertItem(2, 'upload', uploader);
     widget.toolbar.insertItem(3, 'refresh', refreshButton);
-    // widget.toolbar.insertItem(4, 'search', searcher);
-
     app.shell.add(widget, 'left');
   }
 };
