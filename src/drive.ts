@@ -3,7 +3,9 @@ import { ServerConnection } from './serverconnection';
 import { ISignal, Signal } from '@lumino/signaling';
 import { PartialJSONObject } from '@lumino/coreutils';
 import { URLExt } from '@jupyterlab/coreutils';
+import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 
+let BROWSER: IFileBrowserFactory;
 
 /**
  * The url for the default drive service.
@@ -65,7 +67,12 @@ export namespace Drive {
      * REST API given by [Jupyter Notebook API](https://petstore.swagger.io/?url=https://raw.githubusercontent.com/jupyter-server/jupyter_server/main/jupyter_server/services/api/api.yaml#!/contents).
      */
     apiEndpoint?: string;
-  }
+
+    /**
+     * The file browser factory.
+     */
+    browser: any;
+  }  
 }
 
 
@@ -79,7 +86,10 @@ export class Drive implements Contents.IDrive {
    *
    * @param options - The options used to initialize the object.
    */
-  constructor(options: Drive.IOptions = {}) {
+  constructor(options: Drive.IOptions = {
+    browser: undefined
+  }) {
+    BROWSER = options.browser;
     this.name = options.name ?? 'Default';
     this._apiEndpoint = options.apiEndpoint ?? SERVICE_DRIVE_URL;
     this.serverSettings =
@@ -416,6 +426,7 @@ export class Drive implements Contents.IDrive {
     } else if (oldParentPath !== newParentPath) { // moving to a new directory
       const newParentLookup = await this.lookup(newParentPath);
       newParentIdlocal = newParentLookup.fid.split(':')[1];
+      newParentIdlocal = parseInt(newParentIdlocal);
     } else { // same directory
       newParentIdlocal = fileLookup.parent;
     }
@@ -455,12 +466,19 @@ export class Drive implements Contents.IDrive {
     } catch (error) {
       console.error('Error converting to Jupyter API', error);
     }
+    console.log('rename data', {
+      type: 'rename',
+      oldValue: { path: oldLocalPath },
+      newValue: { path: newLocalPath },
+    });
 
     this._fileChanged.emit({
       type: 'rename',
       oldValue: { path: oldLocalPath },
-      newValue: model
+      newValue: { path: newLocalPath },
     });
+    this.refreshBrowser();
+    console.log('File browser refreshed for custom drive.');
     return model;
   }
 
@@ -681,6 +699,19 @@ export class Drive implements Contents.IDrive {
     return URLExt.join(baseUrl, this._apiEndpoint, ...parts);
   }
 
+  async refreshBrowser() {
+    // Use the tracker to find the file browser for this drive
+    const fileBrowser = BROWSER.tracker.find(
+      widget => widget.model.driveName === this.name
+    );
+    if (fileBrowser) {
+      await fileBrowser.model.refresh(); // Refresh the file browser model
+      console.log(`Refreshed file browser for drive: ${this.name}`);
+    } else {
+      console.warn(`No file browser found for drive: ${this.name}`);
+    }
+  }
+
   private _apiEndpoint: string;
   private _isDisposed = false;
   private _fileChanged = new Signal<this, Contents.IChangedArgs>(this);
@@ -826,6 +857,11 @@ namespace Private {
       mimetype = null;
       format = 'json';
     } else if (fileType === 'directory'){
+      transformedContent = null;
+      name = fileName;
+      mimetype = TYPE_TO_MIMETYPE[fileType || ""] || null
+      format = null;
+    } else if (action === 'rename') {
       transformedContent = null;
       name = fileName;
       mimetype = TYPE_TO_MIMETYPE[fileType || ""] || null

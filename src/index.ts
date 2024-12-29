@@ -35,7 +35,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
 
     const trans = translator.load('jupyterlab-remote-contents');
     const serverSettings = ServerConnection.makeSettings();
-    const drive = new Drive({serverSettings, name: 'Remote'});
+    const drive = new Drive({serverSettings, name: 'Remote', browser});
 
     serviceManager.contents.addDrive(drive);
 
