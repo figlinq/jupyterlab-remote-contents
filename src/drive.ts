@@ -289,10 +289,13 @@ export class Drive implements Contents.IDrive {
       args.push('folders');
 
       let parent;
-      if (options.path === '') {
+      if (!options.path) {
         parent = -1;
       } else {
-        parent = options.path;
+        const lookup = await this.lookup(options.path);
+        const fid = lookup.fid;
+        const idlocal = fid.split(':')[1];
+        parent = idlocal
       }
 
       body = JSON.stringify({
