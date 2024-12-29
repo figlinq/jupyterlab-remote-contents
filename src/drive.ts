@@ -387,15 +387,38 @@ export class Drive implements Contents.IDrive {
   ): Promise<Contents.IModel> {
     console.log('rename', oldLocalPath, newLocalPath);
     const settings = this.serverSettings;
+    console.log('settings', settings);
+    const fileLookup = await this.lookup(oldLocalPath);
     
-    const lookup = await this.lookup(oldLocalPath);
+    // Renaming can include moving the file to a new directory, in this case we need check the parent in newLocalPath vs oldLocalPath (find last posix part)
+    // Last part is the file. Prior parts are the directories.
+    const oldPathParts = oldLocalPath.split('/');
+    const newPathParts = newLocalPath.split('/');
 
+    const newFileName = newPathParts[newPathParts.length - 1];
+    
+    const oldParentPath = oldPathParts.slice(0, oldPathParts.length - 1).join('/');
+    const newParentPath = newPathParts.slice(0, newPathParts.length - 1).join('/');
+    
+    let newParentIdlocal;
+    if (newParentPath === '') { // root directory
+      newParentIdlocal = -1;
+    } else if (oldParentPath !== newParentPath) { // moving to a new directory
+      const newParentLookup = await this.lookup(newParentPath);
+      newParentIdlocal = newParentLookup.fid.split(':')[1];
+    } else { // same directory
+      newParentIdlocal = fileLookup.parent;
+    }
+
+    
+    // PATCH /files/{fid}
     let pathParts = [];
     pathParts.push('files');
-    pathParts.push(lookup.fid);
+    pathParts.push(fileLookup.fid);
     const url = this._getUrl(...pathParts);
     
-    lookup.filename = newLocalPath;
+    fileLookup.filename = newFileName;
+    fileLookup.parent = newParentIdlocal;
 
     const headers = {
         'plotly-client-platform': 'web - jupyterlite',
@@ -404,7 +427,7 @@ export class Drive implements Contents.IDrive {
 
     const init = {
       method: 'PATCH',
-      body: JSON.stringify(lookup),
+      body: JSON.stringify(fileLookup),
       headers,
     };
 
@@ -416,7 +439,7 @@ export class Drive implements Contents.IDrive {
     const data = await response.json();
     let model;
     try {
-      model = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[lookup.filetype], newLocalPath, 'rename');
+      model = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[fileLookup.filetype], newLocalPath, 'rename');
       Private.validateContentsModel(model);
       console.log('rename model', model);
     } catch (error) {
