@@ -205,7 +205,7 @@ export class Drive implements Contents.IDrive {
     let jupyterData = data;
     
     try {
-      jupyterData = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[filetype], filename, 'get');
+      jupyterData = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[filetype], filename, 'get', localPath);
     } catch (error) {
       console.error('Error converting to Jupyter API', error);
     }
@@ -263,6 +263,15 @@ export class Drive implements Contents.IDrive {
 
     if(options.type === 'notebook') {
       console.log('newUntitled notebook');
+      
+      let parent;
+      if (!options.path) {
+        parent = -1;
+      } else {
+        const lookup = await this.lookup(options.path);
+        const fid = lookup.fid;
+        parent = fid.split(':')[1];
+      }
 
       fileName = 'Untitled notebook.ipynb';
       args.push('jupyter-notebooks');
@@ -277,7 +286,7 @@ export class Drive implements Contents.IDrive {
 
       headers = {
         'plotly-client-platform': 'web - jupyterlite',
-        'plotly-parent': '-1',
+        'plotly-parent': `${parent}`,
         'plotly-world-readable': 'false',
         'x-file-name': fileName,
         'content-type': 'application/json',
@@ -294,8 +303,7 @@ export class Drive implements Contents.IDrive {
       } else {
         const lookup = await this.lookup(options.path);
         const fid = lookup.fid;
-        const idlocal = fid.split(':')[1];
-        parent = idlocal
+        parent = fid.split(':')[1];
       }
 
       body = JSON.stringify({
@@ -324,10 +332,12 @@ export class Drive implements Contents.IDrive {
       throw err;
     }
     const data = await response.json();
+    const newFileName = data.file.filename;
+    const newLocalPath = options.path ? `${options.path}/${newFileName}` : newFileName;
     
     // Transform the API response to a Contents.IModel
     console.log('newUntitled data', data);
-    const model = Private.convertToJupyterApi(data, options.type, fileName, 'newUntitled');
+    const model = Private.convertToJupyterApi(data, options.type, fileName, 'newUntitled', newLocalPath);
     console.log('newUntitled model', model);
     
     Private.validateContentsModel(model);
@@ -439,7 +449,7 @@ export class Drive implements Contents.IDrive {
     const data = await response.json();
     let model;
     try {
-      model = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[fileLookup.filetype], newLocalPath, 'rename');
+      model = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[fileLookup.filetype], newFileName, 'rename', newLocalPath);
       Private.validateContentsModel(model);
       console.log('rename model', model);
     } catch (error) {
@@ -770,17 +780,19 @@ namespace Private {
     validateProperty(model, 'last_modified', 'string');
   }
 
-  function transformItem(item: any): any {
+  function transformItem(item: any, localPath: string ): any {
     if (!item) {
       throw new Error("Item is missing or undefined.");
     }
   
     const itemType = FILETYPE_TO_TYPE[item.filetype] || "file";
     const mimetype = FILETYPE_TO_MIMETYPE[item.filetype || ""] || null;
+
+    const newLocalPath = localPath ? `${localPath}/${item.filename}` : item.filename;
   
     return {
       name: item.filename || "",
-      path: item.filename || "",
+      path: newLocalPath,
       last_modified: item.date_modified || new Date().toISOString(),
       created: item.creation_time || new Date().toISOString(),
       content: null,
@@ -794,7 +806,7 @@ namespace Private {
     };
   }
 
-  export function convertToJupyterApi(plotlyObject: any, fileType: string | undefined, fileName: string | null, action: string ): any {
+  export function convertToJupyterApi(plotlyObject: any, fileType: string | undefined, fileName: string | null, action: string, localPath: string ): any {
 
     const data = plotlyObject?.file ? plotlyObject.file : plotlyObject;
 
@@ -809,7 +821,7 @@ namespace Private {
       if (!data?.children?.results) {
         throw new Error("No children found for directory-type data.");
       }
-      transformedContent = (data.children?.results || []).map(transformItem);
+      transformedContent = (data.children?.results || []).map((item: any) => transformItem(item, localPath));
       name = '';
       mimetype = null;
       format = 'json';
@@ -827,7 +839,7 @@ namespace Private {
     
     return {
         name,
-        path: "",
+        path: localPath,
         last_modified: new Date().toISOString(),
         created: new Date().toISOString(),
         content: transformedContent,
