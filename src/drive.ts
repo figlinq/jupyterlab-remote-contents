@@ -8,12 +8,24 @@ import { URLExt } from '@jupyterlab/coreutils';
 /**
  * The url for the default drive service.
  */
-const SERVICE_DRIVE_URL = 'api/contents';
+const SERVICE_DRIVE_URL = 'v2/';
 
 /**
  * The url for the file access.
  */
 const FILES_URL = 'files';
+
+/**
+ * Mapping of plotly filetype to Jupyter file type.
+ */
+const FILETYPE_TO_TYPE: { [key: string]: string } = {
+  'fold': 'directory',
+  'html_text': 'file',
+  'grid': 'file',
+  'plot': 'file',
+  'external_image': 'file',
+  'jupyter_notebook': 'notebook',
+};
 
 
 /**
@@ -98,6 +110,22 @@ export class Drive implements Contents.IDrive {
     Signal.clearData(this);
   }
 
+  async lookup(localPath: string): Promise<any>{
+    
+    const args = ['files', 'lookup'];
+    const url = this._getUrl(...args);
+    
+    let params: PartialJSONObject = { path: localPath };
+
+    const response = await ServerConnection.makeRequest(url, {}, this.serverSettings, params);
+    if (response.status !== 200) {
+      const err = await ServerConnection.ResponseError.create(response);
+      throw err;
+    }
+    let data = await response.json();
+    return data;
+  }
+
   /**
    * Get a file or directory.
    *
@@ -113,15 +141,46 @@ export class Drive implements Contents.IDrive {
     localPath: string,
     options?: Contents.IFetchOptions
   ): Promise<Contents.IModel> {
-    let url = this._getUrl(localPath);
+    console.log('get', localPath, options);
+
+    let filetype = 'fold';
+    let lookup;
+    let filename = '';
+    let pathParts = [];
     let params: PartialJSONObject = {};
+    
+    // We need to do a lookup first to determine the appropriate api path
+    if (localPath) {      
+      // Get the filetype and filename from the lookup
+      lookup = await this.lookup(localPath);
+      
+      filetype = lookup.filetype;
+      filename = lookup.filename;
+      
+      if (filetype === 'fold') {
+        pathParts.push('folders');
+        pathParts.push(lookup.fid);
+        params = { page: 1, page_size: 100000, order_by: 'filename'};
+      } else if (filetype === 'jupyter_notebook') {
+        pathParts.push('jupyter-notebooks');
+        pathParts.push(lookup.fid);
+        pathParts.push('content');
+      }
+    } else { // For home directory we do not need to do a lookup  
+      pathParts.push('folders');
+      pathParts.push('home');
+      params = { page: 1, page_size: 100000, order_by: 'filename'};
+    }
+
+    const url = this._getUrl(...pathParts);
+    
     if (options) {
       // The notebook type cannot take a format option.
       if (options.type === 'notebook') {
         delete options['format'];
       }
       const content = options.content ? '1' : '0';
-      params = { ...options, content };
+      params = {...params, ...options, content };
     }
 
     const settings = this.serverSettings;
@@ -130,9 +189,21 @@ export class Drive implements Contents.IDrive {
       const err = await ServerConnection.ResponseError.create(response);
       throw err;
     }
-    const data = await response.json();
-    Private.validateContentsModel(data);
-    return data;
+    let data = await response.json();
+    let jupyterData = data;
+    
+    try {
+      jupyterData = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[filetype], filename);
+    } catch (error) {
+      console.error('Error converting to Jupyter API', error);
+    }
+    
+    console.log(data);
+    console.log(jupyterData);
+
+    Private.validateContentsModel(jupyterData);
+
+    return jupyterData;
   }
 
   /**
@@ -171,33 +242,87 @@ export class Drive implements Contents.IDrive {
   async newUntitled(
     options: Contents.ICreateOptions = {}
   ): Promise<Contents.IModel> {
-    let body = '{}';
-    if (options) {
-      if (options.ext) {
-        options.ext = Private.normalizeExtension(options.ext);
+    console.log('newUntitled options', options);
+
+    let args = [];
+    let body: string | undefined;
+    let headers: HeadersInit | undefined;
+    let fileName: string | null = null;
+
+    if(options.type === 'notebook') {
+      console.log('newUntitled notebook');
+
+      fileName = 'Untitled notebook.ipynb';
+      args.push('jupyter-notebooks');
+      args.push('upload');
+
+      body = JSON.stringify({
+        "cells": [],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5
+      });
+
+      headers = {
+        'plotly-client-platform': 'web - jupyterlite',
+        'plotly-parent': '-1',
+        'plotly-world-readable': 'false',
+        'x-file-name': fileName,
+        'content-type': 'application/json',
+      };
+    } else if (options.type === 'directory') {
+      console.log('newUntitled directory');
+
+      fileName = 'Unnamed Folder';
+      args.push('folders');
+
+      let parent;
+      if (options.path === '') {
+        parent = -1;
+      } else {
+        parent = options.path;
       }
-      body = JSON.stringify(options);
+
+      body = JSON.stringify({
+        "parent": parent,
+        "path": "Unnamed Folder",
+      });
+
+      headers = {
+        'plotly-client-platform': 'web - jupyterlite',
+        'content-type': 'application/json',
+      };
     }
 
     const settings = this.serverSettings;
-    const url = this._getUrl(options.path ?? '');
+    const url = this._getUrl(...args);
+
     const init = {
       method: 'POST',
-      body
+      body,
+      headers,
     };
+
     const response = await ServerConnection.makeRequest(url, init, settings);
     if (response.status !== 201) {
       const err = await ServerConnection.ResponseError.create(response);
       throw err;
     }
     const data = await response.json();
-    Private.validateContentsModel(data);
+    
+    // Transform the API response to a Contents.IModel
+    console.log('newUntitled data', data);
+    const model = Private.convertToJupyterApi(data, options.type, fileName);
+    console.log('newUntitled model', model);
+    
+    Private.validateContentsModel(model);
+
     this._fileChanged.emit({
       type: 'new',
       oldValue: null,
-      newValue: data
+      newValue: model
     });
-    return data;
+    return model;
   }
 
   /**
@@ -345,7 +470,7 @@ export class Drive implements Contents.IDrive {
   }
 
   /**
-   * Create a checkpoint for a file.
+   * Create a checkpoint for a file. Disabled for now.
    *
    * @param localPath - The path of the file.
    *
@@ -358,24 +483,28 @@ export class Drive implements Contents.IDrive {
   async createCheckpoint(
     localPath: string
   ): Promise<Contents.ICheckpointModel> {
-    const url = this._getUrl(localPath, 'checkpoints');
-    const init = { method: 'POST' };
-    const response = await ServerConnection.makeRequest(
-      url,
-      init,
-      this.serverSettings
-    );
-    if (response.status !== 201) {
-      const err = await ServerConnection.ResponseError.create(response);
-      throw err;
-    }
-    const data = await response.json();
-    Private.validateCheckpointModel(data);
-    return data;
+    // const url = this._getUrl(localPath, 'checkpoints');
+    // const init = { method: 'POST' };
+    // const response = await ServerConnection.makeRequest(
+    //   url,
+    //   init,
+    //   this.serverSettings
+    // );
+    // if (response.status !== 201) {
+    //   const err = await ServerConnection.ResponseError.create(response);
+    //   throw err;
+    // }
+    // const data = await response.json();
+    // Private.validateCheckpointModel(data);
+    // return data;
+    return {
+      id: 'no-op',
+      last_modified: new Date().toISOString()
+    } as Contents.ICheckpointModel;
   }
 
   /**
-   * List available checkpoints for a file.
+   * List available checkpoints for a file. Disabled for now.
    *
    * @param localPath - The path of the file.
    *
@@ -388,28 +517,29 @@ export class Drive implements Contents.IDrive {
   async listCheckpoints(
     localPath: string
   ): Promise<Contents.ICheckpointModel[]> {
-    const url = this._getUrl(localPath, 'checkpoints');
-    const response = await ServerConnection.makeRequest(
-      url,
-      {},
-      this.serverSettings
-    );
-    if (response.status !== 200) {
-      const err = await ServerConnection.ResponseError.create(response);
-      throw err;
-    }
-    const data = await response.json();
-    if (!Array.isArray(data)) {
-      throw new Error('Invalid Checkpoint list');
-    }
-    for (let i = 0; i < data.length; i++) {
-      Private.validateCheckpointModel(data[i]);
-    }
-    return data;
+    // const url = this._getUrl(localPath, 'checkpoints');
+    // const response = await ServerConnection.makeRequest(
+    //   url,
+    //   {},
+    //   this.serverSettings
+    // );
+    // if (response.status !== 200) {
+    //   const err = await ServerConnection.ResponseError.create(response);
+    //   throw err;
+    // }
+    // const data = await response.json();
+    // if (!Array.isArray(data)) {
+    //   throw new Error('Invalid Checkpoint list');
+    // }
+    // for (let i = 0; i < data.length; i++) {
+    //   Private.validateCheckpointModel(data[i]);
+    // }
+    // return data;
+    return [];
   }
 
   /**
-   * Restore a file to a known checkpoint state.
+   * Restore a file to a known checkpoint state.  Disabled for now.
    *
    * @param localPath - The path of the file.
    *
@@ -424,21 +554,21 @@ export class Drive implements Contents.IDrive {
     localPath: string,
     checkpointID: string
   ): Promise<void> {
-    const url = this._getUrl(localPath, 'checkpoints', checkpointID);
-    const init = { method: 'POST' };
-    const response = await ServerConnection.makeRequest(
-      url,
-      init,
-      this.serverSettings
-    );
-    if (response.status !== 204) {
-      const err = await ServerConnection.ResponseError.create(response);
-      throw err;
-    }
+    // const url = this._getUrl(localPath, 'checkpoints', checkpointID);
+    // const init = { method: 'POST' };
+    // const response = await ServerConnection.makeRequest(
+    //   url,
+    //   init,
+    //   this.serverSettings
+    // );
+    // if (response.status !== 204) {
+    //   const err = await ServerConnection.ResponseError.create(response);
+    //   throw err;
+    // }
   }
 
   /**
-   * Delete a checkpoint for a file.
+   * Delete a checkpoint for a file. Disabled for now.
    *
    * @param localPath - The path of the file.
    *
@@ -453,17 +583,17 @@ export class Drive implements Contents.IDrive {
     localPath: string,
     checkpointID: string
   ): Promise<void> {
-    const url = this._getUrl(localPath, 'checkpoints', checkpointID);
-    const init = { method: 'DELETE' };
-    const response = await ServerConnection.makeRequest(
-      url,
-      init,
-      this.serverSettings
-    );
-    if (response.status !== 204) {
-      const err = await ServerConnection.ResponseError.create(response);
-      throw err;
-    }
+    // const url = this._getUrl(localPath, 'checkpoints', checkpointID);
+    // const init = { method: 'DELETE' };
+    // const response = await ServerConnection.makeRequest(
+    //   url,
+    //   init,
+    //   this.serverSettings
+    // );
+    // if (response.status !== 204) {
+    //   const err = await ServerConnection.ResponseError.create(response);
+    //   throw err;
+    // }
   }
 
   /**
@@ -575,5 +705,62 @@ namespace Private {
   ): asserts model is Contents.ICheckpointModel {
     validateProperty(model, 'id', 'string');
     validateProperty(model, 'last_modified', 'string');
+  }
+
+  export function convertToJupyterApi(plotlyObject: any, fileType: string | undefined, fileName: string | null ): any {
+
+    const data = plotlyObject?.file ? plotlyObject.file : plotlyObject;
+
+    console.log('convertToJupyterApi', data, fileType, fileName);
+    function transformItem(item: any): any {
+        const itemType = FILETYPE_TO_TYPE[item.filetype] || "file";
+        let mimetype = null;
+        if (item.filetype === "html_text") {
+            mimetype = "text/html";
+        } else if (item.filetype === "grid") {
+            mimetype = "application/json";
+        } else if (item.filetype === "jupyter_notebook") {
+            mimetype = "application/x-ipynb+json";
+        }
+        return {
+            name: item.filename || "",
+            path: item.filename || "",
+            last_modified: item.date_modified || new Date().toISOString(),
+            created: item.creation_time || new Date().toISOString(),
+            content: null,
+            format: null,
+            mimetype: mimetype,
+            size: null,
+            writable: true,
+            hash: null,
+            hash_algorithm: null,
+            type: itemType,
+        };
+    }
+    
+    let transformedContent;
+    let name;
+    if (fileType === 'directory') {
+        transformedContent = (data.children?.results || []).map(transformItem);
+        name = data.filename;
+      } else {
+        transformedContent = data;
+        name = fileName;
+      }
+    
+    return {
+        name,
+        path: "",
+        last_modified: new Date().toISOString(),
+        created: new Date().toISOString(),
+        content: transformedContent,
+        format: "json",
+        mimetype: null,
+        size: null,
+        writable: true,
+        hash: null,
+        hash_algorithm: null,
+        type: fileType,
+    };
   }
 }

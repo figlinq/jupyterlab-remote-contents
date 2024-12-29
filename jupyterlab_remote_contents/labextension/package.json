@@ -76,7 +76,7 @@
     "stylelint-config-recommended": "^6.0.0",
     "stylelint-config-standard": "~24.0.0",
     "stylelint-prettier": "^2.0.0",
-    "typescript": "~5.2.2"
+    "typescript": "~4.1.3"
   },
   "sideEffects": [
     "style/*.css",
@@ -90,7 +90,7 @@
     "extension": true,
     "outputDir": "jupyterlab_remote_contents/labextension",
     "_build": {
-      "load": "static/remoteEntry.9f7b73824b839a228623.js",
+      "load": "static/remoteEntry.68171547b5baeba64f3a.js",
       "extension": "./extension",
       "style": "./style"
     }

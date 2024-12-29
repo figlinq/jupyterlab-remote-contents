@@ -9,12 +9,14 @@ import { IFileBrowserFactory, Uploader } from '@jupyterlab/filebrowser';
 
 import { ITranslator } from '@jupyterlab/translation';
 
-import { listIcon, folderIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
+import { folderIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
 // import { FilenameSearcher, IScore, listIcon, folderIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
 
 import { ServerConnection } from './serverconnection';
 
 import { Drive } from './drive';
+
+import { toArray } from '@lumino/algorithm';
 
 /**
  * Initialization data for the jupyterlab-remote-contents extension.
@@ -42,33 +44,32 @@ const plugin: JupyterFrontEndPlugin<void> = {
       // We don't want to restore old state, we don't have a drive handle ready
       restore: false
     });
-    widget.title.caption = trans.__('Remote Contents (not connected)');
-    widget.title.icon = listIcon;
+    widget.title.caption = trans.__('My files');
+    widget.title.icon = folderIcon;
+    widget.model.cd('/');
 
-    const connectToServerButton = new ToolbarButton({
-      icon: folderIcon,
-      onClick: async () => {
-        let serverUrl = prompt('Please enter the Jupyter server URL:', 'http://127.0.0.1:8000');
+    const handleFileBrowser = () => {
+      const widgets = toArray(app.shell.widgets('left'));
+      const defaultBrowser = widgets.find(widget => widget.id === 'filebrowser');
+      if (defaultBrowser) {
+        defaultBrowser.dispose();
+        app.shell.activateById('jp-remote-contents-browser');
+        return true; // Found and handled
+      }
+      return false; // Not found
+    };
 
-        if (serverUrl) {
-          const parsedUrl = new URL(serverUrl);
-          const queryString = parsedUrl.search;
-          const queryParams = Object.fromEntries(parsedUrl.searchParams);
-          if (queryString) {
-            // remove query string from server URL
-            serverUrl = serverUrl.slice(0, -queryString.length);
-          }
-          drive.serverSettings.baseUrl = serverUrl;
-          drive.serverSettings.queryParams = queryParams;
-          widget.title.caption = trans.__(`Remote Contents at ${serverUrl}`);
-
-          // Go to root directory
-          widget.model.cd('/');
+    // Disable the default file browser
+    // Try finding the file browser immediately
+    if (!handleFileBrowser()) {
+      // Fallback: Use a periodic timer to check for the file browser
+      const interval = setInterval(() => {
+        if (handleFileBrowser()) {
+          clearInterval(interval); // Stop checking once handled
         }
-      },
-      tooltip: trans.__('Connect to Jupyter Server')
-    });
-
+      }, 100); // Check every 100ms
+    }
+    
     const createNewDirectoryButton = new ToolbarButton({
       icon: newFolderIcon,
       onClick: async () => {
@@ -101,13 +102,12 @@ const plugin: JupyterFrontEndPlugin<void> = {
     //   forceRefresh: true
     // });
 
-    widget.toolbar.insertItem(0, 'connect-to-server', connectToServerButton);
     widget.toolbar.insertItem(1, 'create-new-directory', createNewDirectoryButton);
     widget.toolbar.insertItem(2, 'upload', uploader);
     widget.toolbar.insertItem(3, 'refresh', refreshButton);
     // widget.toolbar.insertItem(4, 'search', searcher);
 
-    app.shell.add(widget, 'left');
+    app.shell.add(widget, 'left');    
   }
 };
 
