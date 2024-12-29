@@ -27,6 +27,18 @@ const FILETYPE_TO_TYPE: { [key: string]: string } = {
   'jupyter_notebook': 'notebook',
 };
 
+const FILETYPE_TO_MIMETYPE: Record<string, string> = {
+  "html_text": "text/html",
+  "grid": "application/json",
+  "jupyter_notebook": "application/x-ipynb+json",
+};
+
+const TYPE_TO_MIMETYPE: { [key: string]: string } = {
+  'directory': 'application/x-directory',
+  'file': 'text/plain',
+  'notebook': 'application/x-ipynb+json',
+};
+
 
 /**
  * A namespace for Drive statics.
@@ -193,7 +205,7 @@ export class Drive implements Contents.IDrive {
     let jupyterData = data;
     
     try {
-      jupyterData = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[filetype], filename);
+      jupyterData = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[filetype], filename, 'get');
     } catch (error) {
       console.error('Error converting to Jupyter API', error);
     }
@@ -312,7 +324,7 @@ export class Drive implements Contents.IDrive {
     
     // Transform the API response to a Contents.IModel
     console.log('newUntitled data', data);
-    const model = Private.convertToJupyterApi(data, options.type, fileName);
+    const model = Private.convertToJupyterApi(data, options.type, fileName, 'newUntitled');
     console.log('newUntitled model', model);
     
     Private.validateContentsModel(model);
@@ -370,25 +382,50 @@ export class Drive implements Contents.IDrive {
     oldLocalPath: string,
     newLocalPath: string
   ): Promise<Contents.IModel> {
+    console.log('rename', oldLocalPath, newLocalPath);
     const settings = this.serverSettings;
-    const url = this._getUrl(oldLocalPath);
+    
+    const lookup = await this.lookup(oldLocalPath);
+
+    let pathParts = [];
+    pathParts.push('files');
+    pathParts.push(lookup.fid);
+    const url = this._getUrl(...pathParts);
+    
+    lookup.filename = newLocalPath;
+
+    const headers = {
+        'plotly-client-platform': 'web - jupyterlite',
+        'content-type': 'application/json',
+      };
+
     const init = {
       method: 'PATCH',
-      body: JSON.stringify({ path: newLocalPath })
+      body: JSON.stringify(lookup),
+      headers,
     };
+
     const response = await ServerConnection.makeRequest(url, init, settings);
     if (response.status !== 200) {
       const err = await ServerConnection.ResponseError.create(response);
       throw err;
     }
     const data = await response.json();
-    Private.validateContentsModel(data);
+    let model;
+    try {
+      model = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[lookup.filetype], newLocalPath, 'rename');
+      Private.validateContentsModel(model);
+      console.log('rename model', model);
+    } catch (error) {
+      console.error('Error converting to Jupyter API', error);
+    }
+
     this._fileChanged.emit({
       type: 'rename',
       oldValue: { path: oldLocalPath },
-      newValue: data
+      newValue: model
     });
-    return data;
+    return model;
   }
 
   /**
@@ -707,46 +744,60 @@ namespace Private {
     validateProperty(model, 'last_modified', 'string');
   }
 
-  export function convertToJupyterApi(plotlyObject: any, fileType: string | undefined, fileName: string | null ): any {
+  function transformItem(item: any): any {
+    if (!item) {
+      throw new Error("Item is missing or undefined.");
+    }
+  
+    const itemType = FILETYPE_TO_TYPE[item.filetype] || "file";
+    const mimetype = FILETYPE_TO_MIMETYPE[item.filetype || ""] || null;
+  
+    return {
+      name: item.filename || "",
+      path: item.filename || "",
+      last_modified: item.date_modified || new Date().toISOString(),
+      created: item.creation_time || new Date().toISOString(),
+      content: null,
+      format: null,
+      mimetype,
+      size: null,
+      writable: true,
+      hash: null,
+      hash_algorithm: null,
+      type: itemType,
+    };
+  }
+
+  export function convertToJupyterApi(plotlyObject: any, fileType: string | undefined, fileName: string | null, action: string ): any {
 
     const data = plotlyObject?.file ? plotlyObject.file : plotlyObject;
 
     console.log('convertToJupyterApi', data, fileType, fileName);
-    function transformItem(item: any): any {
-        const itemType = FILETYPE_TO_TYPE[item.filetype] || "file";
-        let mimetype = null;
-        if (item.filetype === "html_text") {
-            mimetype = "text/html";
-        } else if (item.filetype === "grid") {
-            mimetype = "application/json";
-        } else if (item.filetype === "jupyter_notebook") {
-            mimetype = "application/x-ipynb+json";
-        }
-        return {
-            name: item.filename || "",
-            path: item.filename || "",
-            last_modified: item.date_modified || new Date().toISOString(),
-            created: item.creation_time || new Date().toISOString(),
-            content: null,
-            format: null,
-            mimetype: mimetype,
-            size: null,
-            writable: true,
-            hash: null,
-            hash_algorithm: null,
-            type: itemType,
-        };
-    }
     
     let transformedContent;
     let name;
-    if (fileType === 'directory') {
-        transformedContent = (data.children?.results || []).map(transformItem);
-        name = data.filename;
-      } else {
-        transformedContent = data;
-        name = fileName;
+    let mimetype;
+    let format;
+    
+    if (fileType === 'directory' && action === 'get') {
+      if (!data?.children?.results) {
+        throw new Error("No children found for directory-type data.");
       }
+      transformedContent = (data.children?.results || []).map(transformItem);
+      name = '';
+      mimetype = null;
+      format = 'json';
+    } else if (fileType === 'directory'){
+      transformedContent = null;
+      name = fileName;
+      mimetype = TYPE_TO_MIMETYPE[fileType || ""] || null
+      format = null;
+    } else {
+      transformedContent = data;
+      name = fileName;
+      mimetype = TYPE_TO_MIMETYPE[fileType || ""] || null
+      format = 'json';
+    }
     
     return {
         name,
@@ -754,8 +805,8 @@ namespace Private {
         last_modified: new Date().toISOString(),
         created: new Date().toISOString(),
         content: transformedContent,
-        format: "json",
-        mimetype: null,
+        format,
+        mimetype,
         size: null,
         writable: true,
         hash: null,
