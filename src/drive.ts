@@ -5,8 +5,6 @@ import { PartialJSONObject } from '@lumino/coreutils';
 import { URLExt } from '@jupyterlab/coreutils';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 
-let BROWSER: IFileBrowserFactory;
-
 /**
  * The url for the default drive service.
  */
@@ -87,9 +85,9 @@ export class Drive implements Contents.IDrive {
    * @param options - The options used to initialize the object.
    */
   constructor(options: Drive.IOptions = {
-    browser: undefined
+    browser: IFileBrowserFactory
   }) {
-    BROWSER = options.browser;
+    this.browser = options.browser;
     this.name = options.name ?? 'Default';
     this._apiEndpoint = options.apiEndpoint ?? SERVICE_DRIVE_URL;
     this.serverSettings =
@@ -101,6 +99,12 @@ export class Drive implements Contents.IDrive {
    * component of file paths.
    */
   readonly name: string;
+
+  /**
+   * The file browser factory.
+   * This is used to refresh the file browser after a file operation. 
+   */
+  readonly browser: any;
 
   /**
    * A signal emitted when a file operation takes place.
@@ -441,6 +445,9 @@ export class Drive implements Contents.IDrive {
     fileLookup.filename = newFileName;
     fileLookup.parent = newParentIdlocal;
 
+    // Remove category from the fileLookup object as it cannot be null in db
+    delete fileLookup.category;
+
     const headers = {
         'plotly-client-platform': 'web - jupyterlite',
         'content-type': 'application/json',
@@ -701,8 +708,8 @@ export class Drive implements Contents.IDrive {
 
   async refreshBrowser() {
     // Use the tracker to find the file browser for this drive
-    const fileBrowser = BROWSER.tracker.find(
-      widget => widget.model.driveName === this.name
+    const fileBrowser = this.browser.tracker.find(
+      (      widget: { model: { driveName: string; }; }) => widget.model.driveName === this.name
     );
     if (fileBrowser) {
       await fileBrowser.model.refresh(); // Refresh the file browser model
