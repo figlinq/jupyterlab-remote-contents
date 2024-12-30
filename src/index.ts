@@ -18,6 +18,8 @@ import { Drive } from './drive';
 
 import { toArray } from '@lumino/algorithm';
 
+import { Contents } from '@jupyterlab/services';
+
 /**
  * Initialization data for the jupyterlab-remote-contents extension.
  */
@@ -32,6 +34,22 @@ const plugin: JupyterFrontEndPlugin<void> = {
   ) => {
     const { serviceManager } = app;
     const { createFileBrowser } = browser;
+
+    // Define our custom rename, to skip the drive check (gives an error when dropping onto root folder)
+    async function customRename(this: any, path: string, newPath: string): Promise<any> {
+      const [drive1, path1] = this._driveForPath(path);
+      const [, path2] = this._driveForPath(newPath);
+      
+      // Disable the drive check, we only have one drive
+      // if (drive1 !== drive2 && newPath !== '') {
+      //     throw Error('ContentsManager: renaming files must occur within a Drive');
+      // }
+      return drive1.rename(path1, path2).then((contentsModel: Contents.IModel) => {
+          return Object.assign(Object.assign({}, contentsModel), { path: this._toGlobalPath(drive1, path2) });
+      });
+    }
+    // Override the original rename with our custom version
+    (serviceManager.contents as any).rename = customRename.bind(serviceManager.contents);
 
     const trans = translator.load('jupyterlab-remote-contents');
     const serverSettings = ServerConnection.makeSettings();
