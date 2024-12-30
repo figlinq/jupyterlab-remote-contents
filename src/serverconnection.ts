@@ -148,14 +148,11 @@ export namespace ServerConnection {
     static async create(response: Response): Promise<ResponseError> {
       try {
         const data = await response.json();
-        const { message, traceback } = data;
-        if (traceback) {
-          console.error(traceback);
-        }
+        const message = data.errors?.[0]?.message;        
         return new ResponseError(
           response,
-          message ?? ResponseError._defaultMessage(response),
-          traceback ?? ''
+          message,
+          ''
         );
       } catch (e) {
         console.debug(e);

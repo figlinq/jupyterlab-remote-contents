@@ -4,6 +4,7 @@ import { ISignal, Signal } from '@lumino/signaling';
 import { PartialJSONObject } from '@lumino/coreutils';
 import { URLExt } from '@jupyterlab/coreutils';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
+// import { showDialog, Dialog } from '@jupyterlab/apputils';
 
 /**
  * The url for the default drive service.
@@ -37,6 +38,12 @@ const TYPE_TO_MIMETYPE: { [key: string]: string } = {
   'directory': 'application/x-directory',
   'file': 'text/plain',
   'notebook': 'application/x-ipynb+json',
+};
+
+const TYPE_TO_FORMAT: { [key: string]: Contents.FileFormat } = {
+  'directory': 'json',
+  'file': 'text',
+  'notebook': 'json',
 };
 
 
@@ -172,30 +179,36 @@ export class Drive implements Contents.IDrive {
     let filetype = 'fold';
     let lookup;
     let filename = '';
-    let pathParts = [];
+    let pathParts: string[] = [];
     let params: PartialJSONObject = {};
     
     // We need to do a lookup first to determine the appropriate api path
     if (localPath) {      
-      // Get the filetype and filename from the lookup
       lookup = await this.lookup(localPath);
-      
+      // Get the filetype and filename from the lookup      
       filetype = lookup.filetype;
       filename = lookup.filename;
       
       if (filetype === 'fold') {
-        pathParts.push('folders');
-        pathParts.push(lookup.fid);
+        pathParts = ['folders', lookup.fid];
         params = { page: 1, page_size: 100000, order_by: 'filename'};
       } else if (filetype === 'jupyter_notebook') {
-        pathParts.push('jupyter-notebooks');
-        pathParts.push(lookup.fid);
-        pathParts.push('content');
+        pathParts = ['jupyter-notebooks', lookup.fid, 'content'];
+      } else {
+        // showDialog({
+        //   title: 'Unsupported File Type',
+        //   body: 'Currently, you can only open notebooks and folders!',
+        //   buttons: [Dialog.okButton({ label: 'OK' })]
+        // });
+        throw new Error("Currently you can only open notebooks and folders!");
       }
     } else { // For home directory we do not need to do a lookup  
-      pathParts.push('folders');
-      pathParts.push('home');
+      pathParts = ['folders', 'home'];
       params = { page: 1, page_size: 100000, order_by: 'filename'};
+      lookup = {
+        date_modified: '',
+        creation_time: '',
+      }
     }
 
     const url = this._getUrl(...pathParts);
@@ -216,20 +229,26 @@ export class Drive implements Contents.IDrive {
       throw err;
     }
     let data = await response.json();
-    let jupyterData = data;
     
+    const convOptions: any = {
+      data: data?.file || data,
+      type: FILETYPE_TO_TYPE[filetype],
+      name: filename,
+      path: localPath,
+      last_modified: lookup.date_modified,
+      created: lookup.creation_time,
+    };
+    
+    let model;
     try {
-      jupyterData = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[filetype], filename, 'get', localPath);
+      model = Private.convertToJupyterApi(convOptions);
     } catch (error) {
       console.error('Error converting to Jupyter API', error);
     }
-    
-    console.log(data);
-    console.log(jupyterData);
 
-    Private.validateContentsModel(jupyterData);
+    Private.validateContentsModel(model);
 
-    return jupyterData;
+    return model;
   }
 
   /**
@@ -270,7 +289,7 @@ export class Drive implements Contents.IDrive {
   ): Promise<Contents.IModel> {
     console.log('newUntitled options', options);
 
-    let args = [];
+    let args: string[] = [];
     let body: string | undefined;
     let headers: HeadersInit | undefined;
     let fileName: string | null = null;
@@ -288,8 +307,7 @@ export class Drive implements Contents.IDrive {
       }
 
       fileName = 'Untitled notebook.ipynb';
-      args.push('jupyter-notebooks');
-      args.push('upload');
+      args = ['jupyter-notebooks', 'upload'];
 
       body = JSON.stringify({
         "cells": [],
@@ -309,7 +327,7 @@ export class Drive implements Contents.IDrive {
       console.log('newUntitled directory');
 
       fileName = 'Unnamed Folder';
-      args.push('folders');
+      args = ['folders'];
 
       let parent;
       if (!options.path) {
@@ -330,6 +348,14 @@ export class Drive implements Contents.IDrive {
         'content-type': 'application/json',
       };
     }
+    // else {
+    //   showDialog({
+    //       title: 'Unsupported File Type',
+    //       body: 'Currently, you can only open notebooks and folders!',
+    //       buttons: [Dialog.okButton({ label: 'OK' })]
+    //     });
+    //   throw new Error('Currently you can only create notebooks and folders here!');
+    // }
 
     const settings = this.serverSettings;
     const url = this._getUrl(...args);
@@ -348,11 +374,23 @@ export class Drive implements Contents.IDrive {
     const data = await response.json();
     const newFileName = data.file.filename;
     const newLocalPath = options.path ? `${options.path}/${newFileName}` : newFileName;
+
+    const convOptions = {
+      data: data.file,
+      type: options.type,
+      name: newFileName,
+      path: newLocalPath,
+      last_modified: data.file.date_modified,
+      created: data.file.creation_time,
+    };
     
     // Transform the API response to a Contents.IModel
-    console.log('newUntitled data', data);
-    const model = Private.convertToJupyterApi(data, options.type, fileName, 'newUntitled', newLocalPath);
-    console.log('newUntitled model', model);
+    let model;
+    try{
+      model = Private.convertToJupyterApi(convOptions);
+    } catch (error) {
+      console.error('Error converting to Jupyter API', error);
+    }
     
     Private.validateContentsModel(model);
 
@@ -445,17 +483,20 @@ export class Drive implements Contents.IDrive {
     fileLookup.filename = newFileName;
     fileLookup.parent = newParentIdlocal;
 
-    // Remove category from the fileLookup object as it cannot be null in db
-    delete fileLookup.category;
+    const apiObj = {
+      "filename": newFileName,
+      "parent": newParentIdlocal,
+      "fid": fileLookup.fid,
+    }
 
     const headers = {
-        'plotly-client-platform': 'web - jupyterlite',
-        'content-type': 'application/json',
-      };
+      'plotly-client-platform': 'web - jupyterlite',
+      'content-type': 'application/json',
+    };
 
     const init = {
       method: 'PATCH',
-      body: JSON.stringify(fileLookup),
+      body: JSON.stringify(apiObj),
       headers,
     };
 
@@ -465,19 +506,23 @@ export class Drive implements Contents.IDrive {
       throw err;
     }
     const data = await response.json();
+
+    const convOptions = {
+      data: null,
+      type: FILETYPE_TO_TYPE[fileLookup.filetype],
+      name: newFileName,
+      path: newLocalPath,
+      last_modified: data.date_modified,
+      created: data.creation_time,
+    };
+
     let model;
     try {
-      model = Private.convertToJupyterApi(data, FILETYPE_TO_TYPE[fileLookup.filetype], newFileName, 'rename', newLocalPath);
-      Private.validateContentsModel(model);
-      console.log('rename model', model);
+      model = Private.convertToJupyterApi(convOptions);
     } catch (error) {
       console.error('Error converting to Jupyter API', error);
     }
-    console.log('rename data', {
-      type: 'rename',
-      oldValue: { path: oldLocalPath },
-      newValue: { path: newLocalPath },
-    });
+    Private.validateContentsModel(model);
 
     this._fileChanged.emit({
       type: 'rename',
@@ -485,7 +530,6 @@ export class Drive implements Contents.IDrive {
       newValue: { path: newLocalPath },
     });
     this.refreshBrowser();
-    console.log('File browser refreshed for custom drive.');
     return model;
   }
 
@@ -504,16 +548,32 @@ export class Drive implements Contents.IDrive {
    *
    * Uses the [Jupyter Notebook API](https://petstore.swagger.io/?url=https://raw.githubusercontent.com/jupyter-server/jupyter_server/main/jupyter_server/services/api/api.yaml#!/contents) and validates the response model.
    */
-  async save(
+  async   save(
     localPath: string,
     options: Partial<Contents.IModel> = {}
   ): Promise<Contents.IModel> {
     const settings = this.serverSettings;
-    const url = this._getUrl(localPath);
-    const init = {
-      method: 'PUT',
-      body: JSON.stringify(options)
+
+    console.log('save', localPath, options);
+
+    const lookup = options.path ? await this.lookup(options.path) : null;
+    if (!lookup) {
+      throw new Error('Could not find file');
+    }      
+
+    const body = JSON.stringify({content: JSON.stringify(options.content)});
+
+    const headers = {
+      'content-type': 'application/json',
     };
+
+    const url = this._getUrl(...['jupyter-notebooks', lookup.fid]);
+    const init = {
+      method: 'PATCH',
+      body,
+      headers,
+    };
+
     const response = await ServerConnection.makeRequest(url, init, settings);
     // will return 200 for an existing file and 201 for a new file
     if (response.status !== 200 && response.status !== 201) {
@@ -521,13 +581,25 @@ export class Drive implements Contents.IDrive {
       throw err;
     }
     const data = await response.json();
-    Private.validateContentsModel(data);
+
+    const convOptions = {
+      data: null,
+      type: FILETYPE_TO_TYPE[lookup.filetype],
+      name: lookup.filename,
+      path: localPath,
+      last_modified: data.date_modified,
+      created: data.creation_time,
+    };
+
+    const model = Private.convertToJupyterApi(convOptions);
+
+    Private.validateContentsModel(model);
     this._fileChanged.emit({
       type: 'save',
       oldValue: null,
-      newValue: data
+      newValue: model
     });
-    return data;
+    return model;
   }
 
   /**
@@ -713,7 +785,6 @@ export class Drive implements Contents.IDrive {
     );
     if (fileBrowser) {
       await fileBrowser.model.refresh(); // Refresh the file browser model
-      console.log(`Refreshed file browser for drive: ${this.name}`);
     } else {
       console.warn(`No file browser found for drive: ${this.name}`);
     }
@@ -831,8 +902,8 @@ namespace Private {
     return {
       name: item.filename || "",
       path: newLocalPath,
-      last_modified: item.date_modified || new Date().toISOString(),
-      created: item.creation_time || new Date().toISOString(),
+      last_modified: item.date_modified,
+      created: item.creation_time,
       content: null,
       format: null,
       mimetype,
@@ -844,55 +915,32 @@ namespace Private {
     };
   }
 
-  export function convertToJupyterApi(plotlyObject: any, fileType: string | undefined, fileName: string | null, action: string, localPath: string ): any {
+  // export function convertToJupyterApi(plotlyObject: any, fileType: string | undefined, fileName: string | null, action: string, localPath: string, lookup: any ): any {
+  export function convertToJupyterApi(convOptions: any ): any {
+    console.log('convertToJupyterApi start', convOptions);
 
-    const data = plotlyObject?.file ? plotlyObject.file : plotlyObject;
-
-    console.log('convertToJupyterApi', data, fileType, fileName);
+    const {data, type, name, path, created, last_modified} = convOptions;
+    const mimetype = TYPE_TO_MIMETYPE[type || ""] || null;
+    let format = TYPE_TO_FORMAT[type || ""] || null;
     
-    let transformedContent;
-    let name;
-    let mimetype;
-    let format;
+    let transformedData = data?.children ? (data.children?.results || []).map((item: any) => transformItem(item, path)) : data
     
-    if (fileType === 'directory' && action === 'get') {
-      if (!data?.children?.results) {
-        throw new Error("No children found for directory-type data.");
-      }
-      transformedContent = (data.children?.results || []).map((item: any) => transformItem(item, localPath));
-      name = '';
-      mimetype = null;
-      format = 'json';
-    } else if (fileType === 'directory'){
-      transformedContent = null;
-      name = fileName;
-      mimetype = TYPE_TO_MIMETYPE[fileType || ""] || null
-      format = null;
-    } else if (action === 'rename') {
-      transformedContent = null;
-      name = fileName;
-      mimetype = TYPE_TO_MIMETYPE[fileType || ""] || null
-      format = null;
-    } else {
-      transformedContent = data;
-      name = fileName;
-      mimetype = TYPE_TO_MIMETYPE[fileType || ""] || null
-      format = 'json';
-    }
-    
-    return {
+    const model = {
         name,
-        path: localPath,
-        last_modified: new Date().toISOString(),
-        created: new Date().toISOString(),
-        content: transformedContent,
+        path,
+        last_modified,
+        created,
+        content: transformedData,
         format,
         mimetype,
         size: null,
         writable: true,
         hash: null,
         hash_algorithm: null,
-        type: fileType,
+        type,
     };
+
+    console.log('convertToJupyterApi end', model);
+    return model;
   }
 }
