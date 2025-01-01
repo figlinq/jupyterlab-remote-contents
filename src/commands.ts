@@ -36,7 +36,8 @@ export function addInsertDataImportCommand(commands: CommandRegistry, notebookTr
           console.warn('File not found:', path);
           return;
         }
-        console.log('File found:', file);
+        const parsedFid = file.fid.split(':')
+        const URL = window.location.origin + '/~' + parsedFid[0] + '/' + parsedFid[1] + '.csv';
 
         // Get the active notebook
         const currentNotebook = notebookTracker.currentWidget;
@@ -49,7 +50,7 @@ export function addInsertDataImportCommand(commands: CommandRegistry, notebookTr
         const notebook = notebookPanel.content;
 
         // Insert code into the active cell or create a new cell
-        const codeToInsert = `# This code will load data from your Figlinq file \nprint("Hello from the file browser!")`;
+        const codeToInsert = `# Load data from ${file.filename} to Pandas dataframe\nimport pyodide_http\nimport pandas as pd\npyodide_http.patch_all()\ndata = pd.read_csv('${URL}')\ndata.head()`;
 
         if (notebook.activeCell) {
           // Ensure the active cell's model is properly accessed
