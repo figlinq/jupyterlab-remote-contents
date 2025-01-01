@@ -20,20 +20,81 @@ import { toArray } from '@lumino/algorithm';
 
 import { Contents } from '@jupyterlab/services';
 
+import { Context } from '@jupyterlab/docregistry';
+
+import { showDialog, Dialog } from '@jupyterlab/apputils';
+
+import { ILauncher } from '@jupyterlab/launcher';
+
+import { IDisposable } from '@lumino/disposable';
+
+import {SERVICE_DRIVE_URL} from './drive';
+
+import { URLExt } from '@jupyterlab/coreutils';
+
+const REMOVE_COMMANDS = ['fileeditor:create-new', 'fileeditor:create-new-markdown-file'];
+const noOpDisposable: IDisposable = {
+  isDisposed: false,
+  dispose: () => {
+    /* no-op */
+  }
+};
+// Define the custom implementation for _maybeOverWrite
+async function customMaybeOverWrite(this: any, path: string): Promise<void> {
+  const body = this._trans.__(
+    '"%1" already exists. Do you want to replace it?',
+    path
+  );
+
+  const overwriteBtn = Dialog.warnButton({
+    label: this._trans.__('Overwrite'),
+    accept: true
+  });
+
+  return showDialog({
+    title: this._trans.__('File Overwrite?'),
+    body,
+    buttons: [Dialog.cancelButton(), overwriteBtn]
+  }).then(result => {
+    if (this.isDisposed) {
+      return Promise.reject(new Error('Disposed'));
+    }
+
+    if (result.button.accept) {
+      // Skip deleting the file, just proceed with the save operation.
+      return this._finishSaveAs(path);
+    }
+  });
+}
+
+// Override the method on the prototype, bypassing the private visibility restriction
+(Context.prototype as any)._maybeOverWrite = customMaybeOverWrite;
+
 /**
  * Initialization data for the jupyterlab-remote-contents extension.
  */
 const plugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab-remote-contents:plugin',
-  requires: [IFileBrowserFactory, ITranslator],
+  requires: [IFileBrowserFactory, ITranslator, ILauncher],
   autoStart: true,
   activate: (
     app: JupyterFrontEnd,
     browser: IFileBrowserFactory,
-    translator: ITranslator
+    translator: ITranslator,
+    launcher: ILauncher
   ) => {
-    const { serviceManager } = app;
+    const { serviceManager, commands } = app;
     const { createFileBrowser } = browser;
+
+    const originalAdd = launcher.add;
+    // Override the launcher.add method to filter out unwanted commands
+    launcher.add = (options: ILauncher.IItemOptions) => {
+      if (REMOVE_COMMANDS.includes(options.command)) {
+        return noOpDisposable; // Return a no-op disposable
+      }
+      // Call the original add method for other items
+      return originalAdd.call(launcher, options);
+    };
 
     // Define our custom rename, to skip the drive check (gives an error when dropping onto root folder)
     async function customRename(this: any, path: string, newPath: string): Promise<any> {
@@ -119,13 +180,49 @@ const plugin: JupyterFrontEndPlugin<void> = {
     //   placeholder: trans.__('Filter files by name'),
     //   forceRefresh: true
     // });
-
+    
     widget.toolbar.insertItem(1, 'create-new-directory', createNewDirectoryButton);
     widget.toolbar.insertItem(2, 'upload', uploader);
     widget.toolbar.insertItem(3, 'refresh', refreshButton);
     // widget.toolbar.insertItem(4, 'search', searcher);
 
-    app.shell.add(widget, 'left');    
+    app.shell.add(widget, 'left');
+
+    // Handle file retrieval and opening
+    const handleParentLoaded = async () => {
+      const urlParams = new URLSearchParams(window.parent.location.search);
+      const fid = urlParams.get('fid') || '';
+      if (fid) {
+        // GET file path from fid
+        const parts = [
+          SERVICE_DRIVE_URL,
+          'files',
+          fid,
+          'path'
+        ];
+        const partsEncoded = parts.map(part => URLExt.encodeParts(part));
+        const url = '/' + partsEncoded.join('/');
+
+        const response = await fetch(url);
+        if (!response.ok) {
+          showDialog({
+            title: 'FIle loading error',
+            body: `Failed to load file with id ${fid}.`,
+            buttons: [Dialog.okButton({ label: 'OK' })]
+          });
+        }
+        const data = await response.json();
+        commands.execute('docmanager:open', { path: `Remote:${data.path}` });        
+
+        const pathSplit = data.path.split('/')
+        if (pathSplit.length > 1) {
+          const parentPath = pathSplit.slice(0, pathSplit.length - 1).join('/');
+          widget.model.cd(parentPath);
+        }
+      }
+    };
+    handleParentLoaded();
+
   }
 };
 

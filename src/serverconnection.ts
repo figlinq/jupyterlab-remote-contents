@@ -14,6 +14,18 @@ if (typeof window === 'undefined') {
   WEBSOCKET = WebSocket;
 }
 
+export interface ISerializer {
+  /**
+   * Serialize data into a string.
+   */
+  serialize: (data: any) => string;
+
+  /**
+   * Deserialize a string into data.
+   */
+  deserialize: (data: string) => any;
+}
+
 /**
  * The namespace for ServerConnection functions.
  *
@@ -89,7 +101,12 @@ export namespace ServerConnection {
      * The `WebSocket` object constructor.
      */
     readonly WebSocket: typeof WebSocket;
-  }
+
+    /**
+     * The serializer.
+     */
+    readonly serializer: any;
+  } 
 
   /**
    * Create a settings object given a subset of options.
@@ -123,12 +140,12 @@ export namespace ServerConnection {
    * because it is required by the Notebook server.
    */
   export function makeRequest(
+    settings: ISettings,
     url: string,
     init: RequestInit,
-    settings: ISettings,
     params?: PartialJSONObject
   ): Promise<Response> {
-    const queryParams: PartialJSONObject = { ...settings.queryParams, ...params };
+    const queryParams: PartialJSONObject = { ...params };
     const urlWithQueryParams = url + URLExt.objectToQueryString(queryParams);
     return Private.handleRequest(urlWithQueryParams, init, settings);
   }
@@ -228,6 +245,11 @@ namespace Private {
     // Otherwise fall back on the default wsUrl.
     wsUrl = wsUrl ?? pageWsUrl;
 
+    const defaultSerializer: ISerializer = {
+      serialize: (data: any) => JSON.stringify(data),
+      deserialize: (data: string) => JSON.parse(data)
+    };
+
     return {
       init: { cache: 'no-store', credentials: 'same-origin' },
       fetch,
@@ -244,7 +266,8 @@ namespace Private {
       ...options,
       baseUrl,
       queryParams,
-      wsUrl
+      wsUrl,
+      serializer: defaultSerializer
     };
   }
 
@@ -284,10 +307,6 @@ namespace Private {
     // Handle authentication. Authentication can be overdetermined by
     // settings token and XSRF token.
     let authenticated = false;
-    if (settings.token) {
-      authenticated = true;
-      request.headers.append('Authorization', `token ${settings.token}`);
-    }
     if (typeof document !== 'undefined' && document?.cookie) {
       const xsrfToken = getCookie('plotly_csrf_on');
       if (xsrfToken !== undefined) {
@@ -295,6 +314,8 @@ namespace Private {
         request.headers.append('x-csrftoken', xsrfToken);
       }
     }
+
+    request.headers.append('plotly-client-platform', 'web - jupyterlite');
 
     // Set the content type if there is no given data and we are
     // using an authenticated connection.

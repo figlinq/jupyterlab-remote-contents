@@ -9,7 +9,7 @@ import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 /**
  * The url for the default drive service.
  */
-const SERVICE_DRIVE_URL = 'v2/';
+export const SERVICE_DRIVE_URL = 'v2/';
 
 /**
  * The url for the file access.
@@ -143,14 +143,14 @@ export class Drive implements Contents.IDrive {
     Signal.clearData(this);
   }
 
-  async lookup(localPath: string): Promise<any>{
+  async lookup(localPath: string, deleted: boolean = false ): Promise<any>{
     
     const args = ['files', 'lookup'];
     const url = this._getUrl(...args);
     
-    let params: PartialJSONObject = { path: localPath };
+    let params: PartialJSONObject = { path: localPath, deleted };
 
-    const response = await ServerConnection.makeRequest(url, {}, this.serverSettings, params);
+    const response = await ServerConnection.makeRequest(this.serverSettings, url, {}, params);
     if (response.status !== 200) {
       const err = await ServerConnection.ResponseError.create(response);
       throw err;
@@ -158,6 +158,21 @@ export class Drive implements Contents.IDrive {
     let data = await response.json();
     return data;
   }
+
+  // async restore(fid: string): Promise<any>{
+    
+  //   const args = ['files', fid, 'restore'];
+  //   const url = this._getUrl(...args);
+    
+  //   const response = await ServerConnection.makeRequest(this.serverSettings, url, {method: 'POST'});
+  //   if (response.status !== 200) {
+  //     const err = await ServerConnection.ResponseError.create(response);
+  //     console.log('restore error', err);
+  //     throw err;
+  //   }
+  //   let data = await response.json();
+  //   return data;
+  // }
 
   /**
    * Get a file or directory.
@@ -213,18 +228,18 @@ export class Drive implements Contents.IDrive {
 
     const url = this._getUrl(...pathParts);
     
-    if (options) {
-      // The notebook type cannot take a format option.
-      if (options.type === 'notebook') {
-        delete options['format'];
-      }
-      const content = options.content ? '1' : '0';
-      params = {...params, ...options, content };
-    }
+    // if (options) {
+    //   // The notebook type cannot take a format option.
+    //   if (options.type === 'notebook') {
+    //     delete options['format'];
+    //   }
+    //   const content = options.content ? '1' : '0';
+    //   params = {...params, ...options, content };
+    // }
 
-    const settings = this.serverSettings;
-    const response = await ServerConnection.makeRequest(url, {}, settings, params);
+    const response = await ServerConnection.makeRequest(this.serverSettings, url, {}, params);
     if (response.status !== 200) {
+      console.log(response.json())
       const err = await ServerConnection.ResponseError.create(response);
       throw err;
     }
@@ -274,6 +289,95 @@ export class Drive implements Contents.IDrive {
   }
 
   /**
+   * Saves existing notebook in the specified directory path.
+   *
+   * @param options: The options used to create the file, including content
+   *
+   * @returns A promise which resolves with the created file content when the
+   *    file is created.
+   *
+   * #### Notes
+   * Uses the [Jupyter Notebook API](https://petstore.swagger.io/?url=https://raw.githubusercontent.com/jupyter-server/jupyter_server/main/jupyter_server/services/api/api.yaml#!/contents) and validates the response model.
+   */
+  async saveNotebookAs(
+    options: any
+  ): Promise<Contents.IModel> {
+    console.log('saveNotebookAs', options);
+
+    let args: string[] = [];
+    let body: string | undefined;
+    let headers: HeadersInit | undefined;
+    let fileName: string = 'Untitled notebook.ipynb';
+    let refreshBrowser = false;
+    let parentIdLocal;
+    const splitPath = options.path.split('/');
+    
+    if (splitPath.length === 1) { // Home directory, with just filename provided in path
+      parentIdLocal = -1;
+      fileName = options.path;
+      refreshBrowser = true;
+    } else { // In subdirectory
+      const parentPath = splitPath.slice(0, splitPath.length - 1).join('/');
+      const parentLookup = await this.lookup(parentPath);
+      const parentFid = parentLookup.fid;
+      parentIdLocal = parseInt(parentFid.split(':')[1]);
+      fileName = splitPath[splitPath.length - 1];
+    }
+    args = ['jupyter-notebooks', 'upload'];
+    body = JSON.stringify(options.content);
+    headers = {
+      'plotly-parent': `${parentIdLocal}`,
+      'plotly-world-readable': 'false',
+      'x-file-name': fileName,
+      'content-type': 'application/json',
+    };
+    const url = this._getUrl(...args);
+
+    const init = {
+      method: 'POST',
+      body,
+      headers,
+    };
+
+    const response = await ServerConnection.makeRequest(this.serverSettings, url, init);
+    if (response.status !== 201) {
+      const err = await ServerConnection.ResponseError.create(response);
+      throw err;
+    }
+    const data = await response.json();
+
+    const convOptions = {
+      data: data.file,
+      type: options.type,
+      name: data.file.filename,
+      path: options.path,
+      last_modified: data.file.date_modified,
+      created: data.file.creation_time,
+    };
+    
+    // Transform the API response to a Contents.IModel
+    let model;
+    try{
+      model = Private.convertToJupyterApi(convOptions);
+    } catch (error) {
+      console.error('Error converting to Jupyter API', error);
+    }
+    
+    Private.validateContentsModel(model);
+
+    this._fileChanged.emit({
+      type: 'new',
+      oldValue: null,
+      newValue: model
+    });
+    if (refreshBrowser) {
+      this.refreshBrowser();
+    }
+    return model;
+  }
+
+
+  /**
    * Create a new untitled file or directory in the specified directory path.
    *
    * @param options: The options used to create the file.
@@ -287,26 +391,36 @@ export class Drive implements Contents.IDrive {
   async newUntitled(
     options: Contents.ICreateOptions = {}
   ): Promise<Contents.IModel> {
-    console.log('newUntitled options', options);
+    console.log('newUntitled', options);
 
     let args: string[] = [];
     let body: string | undefined;
     let headers: HeadersInit | undefined;
-    let fileName: string | null = null;
+    let fileName: string = 'Untitled notebook.ipynb';
+    let refreshBrowser = false;
 
     if(options.type === 'notebook') {
       console.log('newUntitled notebook');
       
       let parent;
-      if (!options.path) {
+      if (!options.path) { // Home directory
         parent = -1;
+        refreshBrowser = true;
       } else {
-        const lookup = await this.lookup(options.path);
-        const fid = lookup.fid;
-        parent = fid.split(':')[1];
+        const splitPath = options.path.split('/');
+        if (splitPath.length === 1) { // Also home directory, with just filename provided
+          parent = -1;
+          fileName = options.path;
+          refreshBrowser = true;
+        } else { // In subdirectory
+          const parentPath = splitPath.slice(0, splitPath.length - 1).join('/');
+          const parentLookup = await this.lookup(parentPath);
+          const parentFid = parentLookup.fid;
+          parent = parseInt(parentFid.split(':')[1]);
+          fileName = splitPath[splitPath.length - 1];
+        }
       }
 
-      fileName = 'Untitled notebook.ipynb';
       args = ['jupyter-notebooks', 'upload'];
 
       body = JSON.stringify({
@@ -317,7 +431,6 @@ export class Drive implements Contents.IDrive {
       });
 
       headers = {
-        'plotly-client-platform': 'web - jupyterlite',
         'plotly-parent': `${parent}`,
         'plotly-world-readable': 'false',
         'x-file-name': fileName,
@@ -344,7 +457,6 @@ export class Drive implements Contents.IDrive {
       });
 
       headers = {
-        'plotly-client-platform': 'web - jupyterlite',
         'content-type': 'application/json',
       };
     }
@@ -357,7 +469,6 @@ export class Drive implements Contents.IDrive {
     //   throw new Error('Currently you can only create notebooks and folders here!');
     // }
 
-    const settings = this.serverSettings;
     const url = this._getUrl(...args);
 
     const init = {
@@ -366,7 +477,7 @@ export class Drive implements Contents.IDrive {
       headers,
     };
 
-    const response = await ServerConnection.makeRequest(url, init, settings);
+    const response = await ServerConnection.makeRequest(this.serverSettings, url, init);
     if (response.status !== 201) {
       const err = await ServerConnection.ResponseError.create(response);
       throw err;
@@ -399,6 +510,9 @@ export class Drive implements Contents.IDrive {
       oldValue: null,
       newValue: model
     });
+    if (refreshBrowser) {
+      this.refreshBrowser();
+    }
     return model;
   }
 
@@ -413,13 +527,15 @@ export class Drive implements Contents.IDrive {
    * Uses the [Jupyter Notebook API](https://petstore.swagger.io/?url=https://raw.githubusercontent.com/jupyter-server/jupyter_server/main/jupyter_server/services/api/api.yaml#!/contents).
    */
   async delete(localPath: string): Promise<void> {
-    const url = this._getUrl(localPath);
-    const settings = this.serverSettings;
-    const init = { method: 'DELETE' };
-    const response = await ServerConnection.makeRequest(url, init, settings);
-    // TODO: update IPEP27 to specify errors more precisely, so
-    // that error types can be detected here with certainty.
-    if (response.status !== 204) {
+
+    const lookup = await this.lookup(localPath);
+    const fid = lookup.fid
+
+    const url = this._getUrl(...['files', fid, 'trash']);
+    const init = { method: 'POST' };
+    
+    const response = await ServerConnection.makeRequest(this.serverSettings, url, init);
+    if (response.status !== 200) {
       const err = await ServerConnection.ResponseError.create(response);
       throw err;
     }
@@ -448,8 +564,6 @@ export class Drive implements Contents.IDrive {
     newLocalPath: string
   ): Promise<Contents.IModel> {
     console.log('rename', oldLocalPath, newLocalPath);
-    const settings = this.serverSettings;
-    console.log('settings', settings);
     const fileLookup = await this.lookup(oldLocalPath);
     
     // Renaming can include moving the file to a new directory, in this case we need check the parent in newLocalPath vs oldLocalPath (find last posix part)
@@ -490,7 +604,6 @@ export class Drive implements Contents.IDrive {
     }
 
     const headers = {
-      'plotly-client-platform': 'web - jupyterlite',
       'content-type': 'application/json',
     };
 
@@ -500,7 +613,7 @@ export class Drive implements Contents.IDrive {
       headers,
     };
 
-    const response = await ServerConnection.makeRequest(url, init, settings);
+    const response = await ServerConnection.makeRequest(this.serverSettings, url, init);
     if (response.status !== 200) {
       const err = await ServerConnection.ResponseError.create(response);
       throw err;
@@ -548,25 +661,23 @@ export class Drive implements Contents.IDrive {
    *
    * Uses the [Jupyter Notebook API](https://petstore.swagger.io/?url=https://raw.githubusercontent.com/jupyter-server/jupyter_server/main/jupyter_server/services/api/api.yaml#!/contents) and validates the response model.
    */
-  async   save(
+  async save(
     localPath: string,
     options: Partial<Contents.IModel> = {}
   ): Promise<Contents.IModel> {
-    const settings = this.serverSettings;
-
     console.log('save', localPath, options);
-
-    const lookup = options.path ? await this.lookup(options.path) : null;
-    if (!lookup) {
-      throw new Error('Could not find file');
-    }      
-
+    let lookup;
+    // Jupyterlite deletes the file and creates a new one, so we need to restore it from the trash if it is trashed
+    try { 
+      lookup = options.path ? await this.lookup(options.path) : null;
+    } catch {
+      // File does not exist, saving a new file
+      return this.saveNotebookAs(options);
+    }
     const body = JSON.stringify({content: JSON.stringify(options.content)});
-
     const headers = {
       'content-type': 'application/json',
     };
-
     const url = this._getUrl(...['jupyter-notebooks', lookup.fid]);
     const init = {
       method: 'PATCH',
@@ -574,7 +685,7 @@ export class Drive implements Contents.IDrive {
       headers,
     };
 
-    const response = await ServerConnection.makeRequest(url, init, settings);
+    const response = await ServerConnection.makeRequest(this.serverSettings, url, init);
     // will return 200 for an existing file and 201 for a new file
     if (response.status !== 200 && response.status !== 201) {
       const err = await ServerConnection.ResponseError.create(response);
@@ -618,13 +729,12 @@ export class Drive implements Contents.IDrive {
    * Uses the [Jupyter Notebook API](https://petstore.swagger.io/?url=https://raw.githubusercontent.com/jupyter-server/jupyter_server/main/jupyter_server/services/api/api.yaml#!/contents) and validates the response model.
    */
   async copy(fromFile: string, toDir: string): Promise<Contents.IModel> {
-    const settings = this.serverSettings;
     const url = this._getUrl(toDir);
     const init = {
       method: 'POST',
       body: JSON.stringify({ copy_from: fromFile })
     };
-    const response = await ServerConnection.makeRequest(url, init, settings);
+    const response = await ServerConnection.makeRequest(this.serverSettings, url, init);
     if (response.status !== 201) {
       const err = await ServerConnection.ResponseError.create(response);
       throw err;
@@ -917,7 +1027,7 @@ namespace Private {
 
   // export function convertToJupyterApi(plotlyObject: any, fileType: string | undefined, fileName: string | null, action: string, localPath: string, lookup: any ): any {
   export function convertToJupyterApi(convOptions: any ): any {
-    console.log('convertToJupyterApi start', convOptions);
+    // console.log('convertToJupyterApi start', convOptions);
 
     const {data, type, name, path, created, last_modified} = convOptions;
     const mimetype = TYPE_TO_MIMETYPE[type || ""] || null;
@@ -940,7 +1050,7 @@ namespace Private {
         type,
     };
 
-    console.log('convertToJupyterApi end', model);
+    // console.log('convertToJupyterApi end', model);
     return model;
   }
 }
