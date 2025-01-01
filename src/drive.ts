@@ -150,12 +150,12 @@ export class Drive implements Contents.IDrive {
     Signal.clearData(this);
   }
 
-  async lookup(localPath: string, deleted: boolean = false ): Promise<any>{
+  async lookup(localPath: string): Promise<any>{
     
     const args = ['files', 'lookup'];
     const url = this._getUrl(...args);
     
-    let params: PartialJSONObject = { path: localPath, deleted };
+    let params: PartialJSONObject = { path: localPath };
 
     const response = await ServerConnection.makeRequest(this.serverSettings, url, {}, params);
     if (response.status !== 200) {
