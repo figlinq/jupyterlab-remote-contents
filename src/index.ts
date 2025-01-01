@@ -32,7 +32,14 @@ import {SERVICE_DRIVE_URL} from './drive';
 
 import { URLExt } from '@jupyterlab/coreutils';
 
+import { INotebookTracker } from '@jupyterlab/notebook';
+
+import { addInsertDataImportCommand } from './commands';
+
+const DRIVE_NAME = 'Figlinq';
+
 const REMOVE_COMMANDS = ['fileeditor:create-new', 'fileeditor:create-new-markdown-file'];
+
 const noOpDisposable: IDisposable = {
   isDisposed: false,
   dispose: () => {
@@ -100,7 +107,7 @@ const loadFileFromUrlParams = async (commands: any, widget: any) => {
     } else {
       const data = await response.json();
       try {
-        commands.execute('docmanager:open', { path: `Remote:${data.path}` });
+        commands.execute('docmanager:open', { path: `${DRIVE_NAME}:${data.path}` });
         const pathSplit = data.path.split('/')
         if (pathSplit.length > 1) {
           cdPath = pathSplit.slice(0, pathSplit.length - 1).join('/');
@@ -156,16 +163,17 @@ async function customRename(this: any, path: string, newPath: string): Promise<a
  */
 const plugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab-remote-contents:plugin',
-  requires: [IFileBrowserFactory, ITranslator, ILauncher],
+  requires: [IFileBrowserFactory, ITranslator, ILauncher, INotebookTracker],
   autoStart: true,
   activate: (
     app: JupyterFrontEnd,
     browser: IFileBrowserFactory,
     translator: ITranslator,
-    launcher: ILauncher
+    launcher: ILauncher,
+    notebookTracker: INotebookTracker
   ) => {
     const { serviceManager, commands } = app;
-    const { createFileBrowser } = browser;
+    const { createFileBrowser } = browser;    
 
     const originalAdd = launcher.add;
     // Override the launcher.add method to filter out unwanted commands
@@ -179,7 +187,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
     
     const trans = translator.load('jupyterlab-remote-contents');
     const serverSettings = ServerConnection.makeSettings();
-    const drive = new Drive({serverSettings, name: 'Remote', browser});
+    const drive = new Drive({serverSettings, name: DRIVE_NAME, browser});
 
     serviceManager.contents.addDrive(drive);
 
@@ -227,6 +235,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
     widget.toolbar.insertItem(2, 'upload', uploader);
     widget.toolbar.insertItem(3, 'refresh', refreshButton);
     widget.toolbar.insertItem(4, 'search', searcher);
+
+    addInsertDataImportCommand(commands, notebookTracker, app, widget);
 
     app.shell.add(widget, 'left');
     
