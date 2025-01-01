@@ -203,26 +203,33 @@ const plugin: JupyterFrontEndPlugin<void> = {
         const partsEncoded = parts.map(part => URLExt.encodeParts(part));
         const url = '/' + partsEncoded.join('/');
 
-        const response = await fetch(url);
-        if (!response.ok) {
+        const showErrorDialog = () => {
           showDialog({
             title: 'FIle loading error',
             body: `Failed to load file with id ${fid}.`,
             buttons: [Dialog.okButton({ label: 'OK' })]
           });
         }
-        const data = await response.json();
-        commands.execute('docmanager:open', { path: `Remote:${data.path}` });        
 
-        const pathSplit = data.path.split('/')
-        if (pathSplit.length > 1) {
-          const parentPath = pathSplit.slice(0, pathSplit.length - 1).join('/');
-          widget.model.cd(parentPath);
+        const response = await fetch(url);
+        if (!response.ok) {
+          showErrorDialog();
+        } else {
+          const data = await response.json();
+          try {
+            commands.execute('docmanager:open', { path: `Remote:${data.path}` });
+            const pathSplit = data.path.split('/')
+            if (pathSplit.length > 1) {
+              const parentPath = pathSplit.slice(0, pathSplit.length - 1).join('/');
+              widget.model.cd(parentPath);
+            }
+          } catch (error) {
+            showErrorDialog();
+          }
         }
       }
     };
     handleParentLoaded();
-
   }
 };
 
