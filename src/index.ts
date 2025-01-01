@@ -9,8 +9,8 @@ import { IFileBrowserFactory, Uploader } from '@jupyterlab/filebrowser';
 
 import { ITranslator } from '@jupyterlab/translation';
 
-import { folderIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
-// import { FilenameSearcher, IScore, listIcon, folderIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
+// import { folderIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
+import { FilenameSearcher, IScore, folderIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
 
 import { ServerConnection } from './serverconnection';
 
@@ -70,6 +70,87 @@ async function customMaybeOverWrite(this: any, path: string): Promise<void> {
 // Override the method on the prototype, bypassing the private visibility restriction
 (Context.prototype as any)._maybeOverWrite = customMaybeOverWrite;
 
+// Handle opening of files from URL parameters
+const loadFileFromUrlParams = async (commands: any, widget: any) => {
+  const urlParams = new URLSearchParams(window.parent.location.search);
+  const fid = urlParams.get('fid') || '';
+  if (fid) {
+    // GET file path from fid
+    let cdPath = '/';
+    const parts = [
+      SERVICE_DRIVE_URL,
+      'files',
+      fid,
+      'path'
+    ];
+    const partsEncoded = parts.map(part => URLExt.encodeParts(part));
+    const url = '/' + partsEncoded.join('/');
+
+    const showErrorDialog = () => {
+      showDialog({
+        title: 'FIle loading error',
+        body: `Failed to load file with id ${fid}.`,
+        buttons: [Dialog.okButton({ label: 'OK' })]
+      });
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      showErrorDialog();
+    } else {
+      const data = await response.json();
+      try {
+        commands.execute('docmanager:open', { path: `Remote:${data.path}` });
+        const pathSplit = data.path.split('/')
+        if (pathSplit.length > 1) {
+          cdPath = pathSplit.slice(0, pathSplit.length - 1).join('/');
+        }
+      } catch (error) {
+        showErrorDialog();
+      }
+    }
+    widget.model.cd(cdPath);
+  }
+};
+
+const disableDefaultFileBrowser = (app: JupyterFrontEnd) => {
+  const handleFileBrowser = () => {
+    const widgets = toArray(app.shell.widgets('left'));
+    const defaultBrowser = widgets.find(widget => widget.id === 'filebrowser');
+    if (defaultBrowser) {
+      defaultBrowser.dispose();
+      app.shell.activateById('jp-remote-contents-browser');
+      return true; // Found and handled
+    }
+    return false; // Not found
+  };
+
+  // Disable the default file browser
+  // Try finding the file browser immediately
+  if (!handleFileBrowser()) {
+    // Fallback: Use a periodic timer to check for the file browser
+    const interval = setInterval(() => {
+      if (handleFileBrowser()) {
+        clearInterval(interval); // Stop checking once handled
+      }
+    }, 100); // Check every 100ms
+  }
+}
+
+// Define our custom rename, to skip the drive check (gives an error when dropping onto root folder)
+async function customRename(this: any, path: string, newPath: string): Promise<any> {
+  const [drive1, path1] = this._driveForPath(path);
+  const [, path2] = this._driveForPath(newPath);
+  
+  // Disable the drive check, we only have one drive
+  // if (drive1 !== drive2 && newPath !== '') {
+  //     throw Error('ContentsManager: renaming files must occur within a Drive');
+  // }
+  return drive1.rename(path1, path2).then((contentsModel: Contents.IModel) => {
+      return Object.assign(Object.assign({}, contentsModel), { path: this._toGlobalPath(drive1, path2) });
+  });
+}
+
 /**
  * Initialization data for the jupyterlab-remote-contents extension.
  */
@@ -95,23 +176,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
       // Call the original add method for other items
       return originalAdd.call(launcher, options);
     };
-
-    // Define our custom rename, to skip the drive check (gives an error when dropping onto root folder)
-    async function customRename(this: any, path: string, newPath: string): Promise<any> {
-      const [drive1, path1] = this._driveForPath(path);
-      const [, path2] = this._driveForPath(newPath);
-      
-      // Disable the drive check, we only have one drive
-      // if (drive1 !== drive2 && newPath !== '') {
-      //     throw Error('ContentsManager: renaming files must occur within a Drive');
-      // }
-      return drive1.rename(path1, path2).then((contentsModel: Contents.IModel) => {
-          return Object.assign(Object.assign({}, contentsModel), { path: this._toGlobalPath(drive1, path2) });
-      });
-    }
-    // Override the original rename with our custom version
-    (serviceManager.contents as any).rename = customRename.bind(serviceManager.contents);
-
+    
     const trans = translator.load('jupyterlab-remote-contents');
     const serverSettings = ServerConnection.makeSettings();
     const drive = new Drive({serverSettings, name: 'Remote', browser});
@@ -124,30 +189,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
       restore: false
     });
     widget.title.caption = trans.__('My files');
-    widget.title.icon = folderIcon;
-    widget.model.cd('/');
-
-    const handleFileBrowser = () => {
-      const widgets = toArray(app.shell.widgets('left'));
-      const defaultBrowser = widgets.find(widget => widget.id === 'filebrowser');
-      if (defaultBrowser) {
-        defaultBrowser.dispose();
-        app.shell.activateById('jp-remote-contents-browser');
-        return true; // Found and handled
-      }
-      return false; // Not found
-    };
-
-    // Disable the default file browser
-    // Try finding the file browser immediately
-    if (!handleFileBrowser()) {
-      // Fallback: Use a periodic timer to check for the file browser
-      const interval = setInterval(() => {
-        if (handleFileBrowser()) {
-          clearInterval(interval); // Stop checking once handled
-        }
-      }, 100); // Check every 100ms
-    }
+    widget.title.icon = folderIcon;    
     
     const createNewDirectoryButton = new ToolbarButton({
       icon: newFolderIcon,
@@ -167,69 +209,31 @@ const plugin: JupyterFrontEndPlugin<void> = {
       tooltip: trans.__('Refresh File Browser')
     });
 
-    // const searcher = FilenameSearcher({
-    //   updateFilter: (
-    //     filterFn: (item: string) => Partial<IScore> | null,
-    //     query?: string
-    //   ) => {
-    //     widget.model.setFilter(value => {
-    //       return filterFn(value.name.toLowerCase());
-    //     });
-    //   },
-    //   useFuzzyFilter: true,
-    //   placeholder: trans.__('Filter files by name'),
-    //   forceRefresh: true
-    // });
+    const searcher = FilenameSearcher({
+      updateFilter: (
+        filterFn: (item: string) => Partial<IScore> | null,
+        query?: string
+      ) => {
+        widget.model.setFilter(value => {
+          return filterFn(value.name.toLowerCase());
+        });
+      },
+      useFuzzyFilter: true,
+      placeholder: trans.__('Filter files by name'),
+      forceRefresh: true
+    });
     
     widget.toolbar.insertItem(1, 'create-new-directory', createNewDirectoryButton);
     widget.toolbar.insertItem(2, 'upload', uploader);
     widget.toolbar.insertItem(3, 'refresh', refreshButton);
-    // widget.toolbar.insertItem(4, 'search', searcher);
+    widget.toolbar.insertItem(4, 'search', searcher);
 
     app.shell.add(widget, 'left');
-
-    // Handle file retrieval and opening
-    const handleParentLoaded = async () => {
-      const urlParams = new URLSearchParams(window.parent.location.search);
-      const fid = urlParams.get('fid') || '';
-      if (fid) {
-        // GET file path from fid
-        const parts = [
-          SERVICE_DRIVE_URL,
-          'files',
-          fid,
-          'path'
-        ];
-        const partsEncoded = parts.map(part => URLExt.encodeParts(part));
-        const url = '/' + partsEncoded.join('/');
-
-        const showErrorDialog = () => {
-          showDialog({
-            title: 'FIle loading error',
-            body: `Failed to load file with id ${fid}.`,
-            buttons: [Dialog.okButton({ label: 'OK' })]
-          });
-        }
-
-        const response = await fetch(url);
-        if (!response.ok) {
-          showErrorDialog();
-        } else {
-          const data = await response.json();
-          try {
-            commands.execute('docmanager:open', { path: `Remote:${data.path}` });
-            const pathSplit = data.path.split('/')
-            if (pathSplit.length > 1) {
-              const parentPath = pathSplit.slice(0, pathSplit.length - 1).join('/');
-              widget.model.cd(parentPath);
-            }
-          } catch (error) {
-            showErrorDialog();
-          }
-        }
-      }
-    };
-    handleParentLoaded();
+    
+    loadFileFromUrlParams(commands, widget);
+    disableDefaultFileBrowser(app);
+    // Override the original rename command with our custom version to avoid drive check
+    (serviceManager.contents as any).rename = customRename.bind(serviceManager.contents);
   }
 };
 

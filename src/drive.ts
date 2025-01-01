@@ -16,6 +16,13 @@ export const SERVICE_DRIVE_URL = 'v2/';
  */
 const FILES_URL = 'files';
 
+const EMPTY_NOTEBOOK: PartialJSONObject = {
+  cells: [],
+  metadata: {},
+  nbformat: 4,
+  nbformat_minor: 5
+};
+
 /**
  * Mapping of plotly filetype to Jupyter file type.
  */
@@ -189,7 +196,7 @@ export class Drive implements Contents.IDrive {
     localPath: string,
     options?: Contents.IFetchOptions
   ): Promise<Contents.IModel> {
-    console.log('get', localPath, options);
+    // console.log('get', localPath, options);
 
     let filetype = 'fold';
     let lookup;
@@ -210,11 +217,6 @@ export class Drive implements Contents.IDrive {
       } else if (filetype === 'jupyter_notebook') {
         pathParts = ['jupyter-notebooks', lookup.fid, 'content'];
       } else {
-        // showDialog({
-        //   title: 'Unsupported File Type',
-        //   body: 'Currently, you can only open notebooks and folders!',
-        //   buttons: [Dialog.okButton({ label: 'OK' })]
-        // });
         throw new Error("Currently you can only open notebooks and folders!");
       }
     } else { // For home directory we do not need to do a lookup  
@@ -406,29 +408,14 @@ export class Drive implements Contents.IDrive {
       if (!options.path) { // Home directory
         parent = -1;
         refreshBrowser = true;
-      } else {
-        const splitPath = options.path.split('/');
-        if (splitPath.length === 1) { // Also home directory, with just filename provided
-          parent = -1;
-          fileName = options.path;
-          refreshBrowser = true;
-        } else { // In subdirectory
-          const parentPath = splitPath.slice(0, splitPath.length - 1).join('/');
-          const parentLookup = await this.lookup(parentPath);
-          const parentFid = parentLookup.fid;
-          parent = parseInt(parentFid.split(':')[1]);
-          fileName = splitPath[splitPath.length - 1];
-        }
+      } else { // In subdirectory
+        const parentLookup = await this.lookup(options.path);
+        const parentFid = parentLookup.fid;
+        parent = parseInt(parentFid.split(':')[1]);
       }
 
       args = ['jupyter-notebooks', 'upload'];
-
-      body = JSON.stringify({
-        "cells": [],
-        "metadata": {},
-        "nbformat": 4,
-        "nbformat_minor": 5
-      });
+      body = JSON.stringify(EMPTY_NOTEBOOK);
 
       headers = {
         'plotly-parent': `${parent}`,
@@ -460,14 +447,6 @@ export class Drive implements Contents.IDrive {
         'content-type': 'application/json',
       };
     }
-    // else {
-    //   showDialog({
-    //       title: 'Unsupported File Type',
-    //       body: 'Currently, you can only open notebooks and folders!',
-    //       buttons: [Dialog.okButton({ label: 'OK' })]
-    //     });
-    //   throw new Error('Currently you can only create notebooks and folders here!');
-    // }
 
     const url = this._getUrl(...args);
 
@@ -500,7 +479,7 @@ export class Drive implements Contents.IDrive {
     try{
       model = Private.convertToJupyterApi(convOptions);
     } catch (error) {
-      console.error('Error converting to Jupyter API', error);
+      console.error('Error converting data to Jupyter API', error);
     }
     
     Private.validateContentsModel(model);
@@ -530,6 +509,7 @@ export class Drive implements Contents.IDrive {
 
     const lookup = await this.lookup(localPath);
     const fid = lookup.fid
+    const parent = lookup.parent;
 
     const url = this._getUrl(...['files', fid, 'trash']);
     const init = { method: 'POST' };
@@ -544,6 +524,9 @@ export class Drive implements Contents.IDrive {
       oldValue: { path: localPath },
       newValue: null
     });
+    if (parent === -1) {
+      this.refreshBrowser();
+    }
   }
 
   /**
