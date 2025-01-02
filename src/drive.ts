@@ -172,7 +172,7 @@ export class Drive implements Contents.IDrive {
     const params = {};
 
     const response = await ServerConnection.makeRequest(this.serverSettings, url, init, params);
-    if (response.status !== 201) {
+    if (response.status !== 201 && response.status !== 204) {
       const err = await ServerConnection.ResponseError.create(response);
       console.error('createRevision error', err);
       showDialog({
