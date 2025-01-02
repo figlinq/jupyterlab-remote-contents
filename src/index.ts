@@ -14,7 +14,7 @@ import { IDisposable } from '@lumino/disposable';
 import {SERVICE_DRIVE_URL} from './drive';
 import { URLExt } from '@jupyterlab/coreutils';
 import { INotebookTracker } from '@jupyterlab/notebook';
-import { addInsertDataImportCommand } from './commands';
+import { addContextMenuCommands } from './commands';
 import { FILETYPE_TO_ICON } from './icons';
 
 const DRIVE_NAME = 'Figlinq';
@@ -271,7 +271,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
     widget.toolbar.insertItem(3, 'refresh', refreshButton);
     widget.toolbar.insertItem(4, 'search', searcher);
     
-    addInsertDataImportCommand(commands, notebookTracker, app, widget);
+    addContextMenuCommands(commands, notebookTracker, app, widget);
     registerCustomFileType(app);
 
     // Override the original getFileTypeForModel method to handle custom MIME types
