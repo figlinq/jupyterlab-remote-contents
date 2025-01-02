@@ -8,7 +8,10 @@ import { Menu } from '@lumino/widgets';
 import { createIcon } from './icons';
 import { mdiViewGridPlusOutline } from '@mdi/js';
 
-
+const ORIGIN = window.parent.location.origin;
+const SNIPPETS = {
+  installChartStudio: `# Install Chart Studio package to interact with Figlinq datasets and charts\n%pip install chart_studio`
+}
 
 const showErrorDialog = (body:string, title:string) => {
   showDialog({
@@ -18,7 +21,44 @@ const showErrorDialog = (body:string, title:string) => {
   });
 }
 
-async function addInsertDataImport(
+async function insertCode(
+    { commands, notebookTracker, app, widget }: { commands: CommandRegistry, notebookTracker: INotebookTracker, app: JupyterFrontEnd, widget: FileBrowser },
+  args: any) {  
+    
+    // Get the active notebook
+    const currentNotebook = notebookTracker.currentWidget;
+    if (!currentNotebook) {
+      showErrorDialog('Please create or open a notebook before executing this action.', 'No notebook open');
+      return;
+    }
+    
+    const snippet = args.snippet;
+    const notebookPanel = currentNotebook as NotebookPanel;
+    const notebook = notebookPanel.content;
+    
+    if (notebook.activeCell) {
+      // Ensure the active cell's model is properly accessed
+      const activeCellModel = notebook.activeCell.model;
+      if (activeCellModel && activeCellModel.sharedModel) {
+        const currentSource = activeCellModel.sharedModel.getSource();
+        activeCellModel.sharedModel.setSource(currentSource + '\n' + snippet);
+      }
+    } else {
+      // Insert a new cell below if no active cell
+      NotebookActions.insertBelow(notebook);
+      
+      // Access the newly created cell safely
+      const newActiveCell = notebook.activeCell as any;
+      if (newActiveCell && newActiveCell.model && newActiveCell.model.sharedModel) {
+        newActiveCell.model.sharedModel.setSource(snippet);
+      }
+    }
+
+  // Ensure the notebook panel is focused
+  notebookPanel.content.activate();
+}
+
+async function insertDataImportCode(
   { commands, notebookTracker, app, widget }:
     { commands: CommandRegistry, notebookTracker: INotebookTracker, app: JupyterFrontEnd, widget: FileBrowser }) {
 
@@ -41,49 +81,26 @@ async function addInsertDataImport(
     return;
   }
   const parsedFid = file.fid.split(':')
-  const URL = window.location.origin + '/~' + parsedFid[0] + '/' + parsedFid[1] + '.csv';
+  const URL = ORIGIN + '/~' + parsedFid[0] + '/' + parsedFid[1] + '.csv';
+  const snippet = `# Patch http requests (required for importing data into Python execution environment) \nimport pyodide_http\npyodide_http.patch_all()\n# Load data from ${file.filename} to Pandas dataframe\nimport pandas as pd\ndata = pd.read_csv('${URL}')\ndata.head()`;
 
-  // Get the active notebook
-  const currentNotebook = notebookTracker.currentWidget;
-  if (!currentNotebook) {
-    showErrorDialog('Please create or open a notebook before executing this action.', 'No notebook open');
-    return;
-  }
-
-  const notebookPanel = currentNotebook as NotebookPanel;
-  const notebook = notebookPanel.content;
-
-  // Insert code into the active cell or create a new cell
-  const codeToInsert = `# Patch http requests (required for importing data into Python execution environment) \nimport pyodide_http\npyodide_http.patch_all()\n# Load data from ${file.filename} to Pandas dataframe\nimport pandas as pd\ndata = pd.read_csv('${URL}')\ndata.head()`;
-
-  if (notebook.activeCell) {
-    // Ensure the active cell's model is properly accessed
-    const activeCellModel = notebook.activeCell.model;
-    if (activeCellModel && activeCellModel.sharedModel) {
-      const currentSource = activeCellModel.sharedModel.getSource();
-      activeCellModel.sharedModel.setSource(currentSource + '\n' + codeToInsert);
-    }
-  } else {
-    // Insert a new cell below if no active cell
-    NotebookActions.insertBelow(notebook);
-      
-    // Access the newly created cell safely
-    const newActiveCell = notebook.activeCell as any;
-    if (newActiveCell && newActiveCell.model && newActiveCell.model.sharedModel) {
-      newActiveCell.model.sharedModel.setSource(codeToInsert);
-    }
-  }
-
-  // Ensure the notebook panel is focused
-  notebookPanel.content.activate();
+  // Insert the code into the active cell
+  insertCode({ commands, notebookTracker, app, widget }, { snippet });
 }
 
 const FIGLINQ_COMMANDS = [
   {
     'command': 'filebrowser:fq-insert-data-import-code',
-    'label': 'Insert Data Import Code',
+    'label': 'Add Data Import Code',
     'icon': mdiViewGridPlusOutline,
-    'execute': addInsertDataImport
+    'execute': insertDataImportCode,
+  },
+  {
+    'command': 'filebrowser:fq-insert-install-cs-code',
+    'label': 'Add Package To Interact With Figlinq',
+    'icon': mdiViewGridPlusOutline,
+    'execute': insertCode,
+    'args': { snippet: SNIPPETS.installChartStudio }
   }
 ];
 
@@ -97,12 +114,12 @@ export function addContextMenuCommands(commands: CommandRegistry, notebookTracke
   }
 
   // Add commands from COMMANDS
-  FIGLINQ_COMMANDS.forEach(({command, label, icon, execute}) => {
+  FIGLINQ_COMMANDS.forEach(({command, label, icon, execute, args}) => {
     commands.addCommand(command, {
       label: label,
       icon: createIcon(icon),
       execute: () => {
-        execute(infra);
+        execute(infra, args);
       }
     });
   });

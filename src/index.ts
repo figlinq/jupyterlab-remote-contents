@@ -15,11 +15,10 @@ import {SERVICE_DRIVE_URL} from './drive';
 import { URLExt } from '@jupyterlab/coreutils';
 import { INotebookTracker } from '@jupyterlab/notebook';
 import { addContextMenuCommands } from './commands';
-import { FILETYPE_TO_ICON } from './icons';
+import { getFileTypeToIcon } from './icons';
 
 const DRIVE_NAME = 'Figlinq';
 const REMOVE_LAUNCHER_COMMANDS = ['fileeditor:create-new', 'fileeditor:create-new-markdown-file'];
-
 
 // Define the custom implementation for _maybeOverWrite to skip deleting the file in figlinq
 async function customMaybeOverWrite(this: any, path: string): Promise<void> {
@@ -171,12 +170,14 @@ async function customRename(this: any, path: string, newPath: string): Promise<a
  * @returns void
  * 
 **/
-function registerCustomFileType(app: JupyterFrontEnd) {
-    const registry = app.docRegistry;
+function registerCustomFileTypes(app: JupyterFrontEnd) {
+  const registry = app.docRegistry;
+  const filetypeToIcon = getFileTypeToIcon();
 
   // Add a custom file types from FILETYPE_TO_ICON object
-  Object.keys(FILETYPE_TO_ICON).forEach(fileType => {
-    const fileTypeData = FILETYPE_TO_ICON[fileType];
+  
+  Object.keys(filetypeToIcon).forEach(fileType => {
+    const fileTypeData = filetypeToIcon[fileType];
     registry.addFileType({
       name: fileTypeData.name,
       displayName: fileTypeData.displayName,
@@ -203,6 +204,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
   ) => {
     const { serviceManager, commands, docRegistry } = app;
     const { createFileBrowser } = browser;    
+
 
     const originalAdd = launcher.add;
     // Override the launcher.add method to filter out unwanted commands
@@ -272,7 +274,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
     widget.toolbar.insertItem(4, 'search', searcher);
     
     addContextMenuCommands(commands, notebookTracker, app, widget);
-    registerCustomFileType(app);
+    registerCustomFileTypes(app);
 
     // Override the original getFileTypeForModel method to handle custom MIME types
     const originalGetFileTypeForModel = docRegistry.getFileTypeForModel;
