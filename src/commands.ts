@@ -1,7 +1,6 @@
 import { CommandRegistry } from '@lumino/commands';
 import { NotebookPanel, NotebookActions, INotebookTracker } from '@jupyterlab/notebook';
 import { JupyterFrontEnd } from '@jupyterlab/application';
-import { LabIcon } from '@jupyterlab/ui-components';
 import { FileBrowser } from '@jupyterlab/filebrowser';
 import { Drive } from './drive';
 import { showDialog, Dialog } from '@jupyterlab/apputils';
@@ -14,22 +13,15 @@ const showErrorDialog = (body:string, title:string) => {
       title,
       body,
       buttons: [Dialog.okButton({ label: 'OK' })] 
-    });
-  }
-
-// Create a LabIcon instance
-// const insertDataImportIcon = new LabIcon({
-//     name: 'figlinq-insert-data-import-icon',
-//     svgstr: insertDataImportIconSvg
-// });
-const insertDataImportIcon = createIcon(mdiViewGridPlusOutline);
+  });
+}
 
 export function addInsertDataImportCommand(commands: CommandRegistry, notebookTracker: INotebookTracker, app: JupyterFrontEnd, widget: FileBrowser) {
     const command = 'filebrowser:fq-insert-data-import-code';
 
     commands.addCommand(command, {
       label: 'Insert Data Import Code',
-      icon: insertDataImportIcon,
+      icon: createIcon(mdiViewGridPlusOutline),
       execute: async () => {
 
         const item = widget.selectedItems().next();
