@@ -9,8 +9,26 @@ import { createIcon } from './icons';
 import { mdiViewGridPlusOutline } from '@mdi/js';
 
 const ORIGIN = window.parent.location.origin;
+
 const SNIPPETS = {
-  installChartStudio: `# Install Chart Studio package to interact with Figlinq datasets and charts\n%pip install chart_studio`
+installChartStudio: `# Patch http requests (required for importing data into Python execution environment)
+import pyodide_http
+pyodide_http.patch_all()
+
+# Install Chart Studio package to interact with Figlinq datasets and charts
+%pip install chart_studio
+
+# Import required libraries
+import chart_studio
+
+# Set credentials and privacy settings
+chart_studio.tools.set_config_file(
+    plotly_domain='${ORIGIN}',
+    plotly_api_domain='${ORIGIN}',
+    world_readable=False,
+    sharing='private'
+)
+chart_studio.tools.set_credentials_file(username='YOUR_USERNAME', api_key='YOUR_API_KEY')`,
 }
 
 const showErrorDialog = (body:string, title:string) => {
