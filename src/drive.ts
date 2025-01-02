@@ -5,7 +5,7 @@ import { PartialJSONObject } from '@lumino/coreutils';
 import { URLExt } from '@jupyterlab/coreutils';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { FILETYPE_TO_ICON } from './icons';
-// import { showDialog, Dialog } from '@jupyterlab/apputils';
+import { showDialog, Dialog} from '@jupyterlab/apputils';
 
 /**
  * The url for the default drive service.
@@ -158,6 +158,29 @@ export class Drive implements Contents.IDrive {
     }
     let data = await response.json();
     return data;
+  }
+
+  async createRevision(fid: string): Promise<any>{
+    
+    const args = ['files', fid, 'revisions'];
+    const url = this._getUrl(...args);
+
+    const init = {
+      method: 'POST',
+    };
+    
+    const params = {};
+
+    const response = await ServerConnection.makeRequest(this.serverSettings, url, init, params);
+    if (response.status !== 201) {
+      const err = await ServerConnection.ResponseError.create(response);
+      console.error('createRevision error', err);
+      showDialog({
+        title: 'Error',
+        body: err.message,
+        buttons: [Dialog.okButton()]
+      });
+    }
   }
 
   // async restore(fid: string): Promise<any>{
@@ -669,6 +692,9 @@ export class Drive implements Contents.IDrive {
       throw err;
     }
     const data = await response.json();
+
+    // Create a revision
+    await this.createRevision(lookup.fid);
 
     const convOptions = {
       data: null,
