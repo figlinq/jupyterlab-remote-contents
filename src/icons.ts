@@ -22,28 +22,9 @@ export const insertDataImportIconSvgDark =
 
 const theme = document.body.classList.contains('theme-light') ? 'light' : 'dark';
 const fillColor = theme === 'light' ? 'black' : 'white';
-// const types = {
-//   jupyter_notebook: mdiFileCodeOutline,
-//   fold: mdiFolder,
-//   dash_app: mdiFolder,
-//   plot: mdiChartBoxOutline,
-//   grid: mdiGrid,
-//   grid_alt: mdiGrid,
-//   dashboard: mdiPackageVariantClosed,
-//   html_text: mdiTextBoxOutline,
-//   figure: mdiViewDashboardOutline,
-//   external_image: mdiImageOutline,
-//   external_file: mdiFilePdfBoxOutline,
-//   my_files: mdiFolderMultiple,
-//   public_content: mdiEarth,
-//   agent: mdiFaceAgent,
-//   agent_team: mdiAccountGroup,
-//   agent_tool: mdiTools,
-//   agent_workflow: mdiFormatListText,
-// };
 
 // Create a LabIcon instance
-const createIcon = (path: string) => {
+export const createIcon = (path: string) => {
   const svgstr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${path}" fill="${fillColor}" /></svg>`
   return new LabIcon({
     name: path,

@@ -6,7 +6,8 @@ import { FileBrowser } from '@jupyterlab/filebrowser';
 import { Drive } from './drive';
 import { showDialog, Dialog } from '@jupyterlab/apputils';
 import { Menu } from '@lumino/widgets';
-import { insertDataImportIconSvg, insertDataImportIconSvgDark } from './icons';
+import { createIcon } from './icons';
+import { mdiViewGridPlusOutline } from '@mdi/js';
 
 const showErrorDialog = (body:string, title:string) => {
   showDialog({
@@ -17,24 +18,18 @@ const showErrorDialog = (body:string, title:string) => {
   }
 
 // Create a LabIcon instance
-const insertDataImportIcon = new LabIcon({
-    name: 'figlinq-insert-data-import-icon',
-    svgstr: insertDataImportIconSvg
-});
-
-const insertDataImportIconDark = new LabIcon({
-    name: 'figlinq-insert-data-import-icon-dark',
-    svgstr: insertDataImportIconSvgDark
-});
+// const insertDataImportIcon = new LabIcon({
+//     name: 'figlinq-insert-data-import-icon',
+//     svgstr: insertDataImportIconSvg
+// });
+const insertDataImportIcon = createIcon(mdiViewGridPlusOutline);
 
 export function addInsertDataImportCommand(commands: CommandRegistry, notebookTracker: INotebookTracker, app: JupyterFrontEnd, widget: FileBrowser) {
     const command = 'filebrowser:fq-insert-data-import-code';
 
-    // Check current theme
-    const isLight = document.body.classList.contains('theme-light');
     commands.addCommand(command, {
       label: 'Insert Data Import Code',
-      icon: isLight ? insertDataImportIcon : insertDataImportIconDark,
+      icon: insertDataImportIcon,
       execute: async () => {
 
         const item = widget.selectedItems().next();
