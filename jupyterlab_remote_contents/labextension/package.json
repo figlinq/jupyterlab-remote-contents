@@ -62,6 +62,7 @@
     "@jupyterlab/settingregistry": "^4.3.4",
     "@jupyterlab/translation": "^4.3.4",
     "@jupyterlab/ui-components": "^4.3.4",
+    "@mdi/js": "^7.4.47",
     "@types/node": "20.9.0"
   },
   "devDependencies": {
@@ -93,7 +94,7 @@
     "extension": true,
     "outputDir": "jupyterlab_remote_contents/labextension",
     "_build": {
-      "load": "static/remoteEntry.a5d59da5108cd026b30d.js",
+      "load": "static/remoteEntry.0d52a66acc4781eb7721.js",
       "extension": "./extension",
       "style": "./style"
     }

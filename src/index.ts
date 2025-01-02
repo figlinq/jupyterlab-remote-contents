@@ -1,52 +1,27 @@
-import {
-  JupyterFrontEnd,
-  JupyterFrontEndPlugin
-} from '@jupyterlab/application';
-
+import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
 import { ToolbarButton } from '@jupyterlab/apputils';
-
 import { IFileBrowserFactory, Uploader } from '@jupyterlab/filebrowser';
-
 import { ITranslator } from '@jupyterlab/translation';
-
-// import { folderIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
 import { FilenameSearcher, IScore, folderIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
-
 import { ServerConnection } from './serverconnection';
-
 import { Drive } from './drive';
-
 import { toArray } from '@lumino/algorithm';
-
 import { Contents } from '@jupyterlab/services';
-
 import { Context } from '@jupyterlab/docregistry';
-
 import { showDialog, Dialog } from '@jupyterlab/apputils';
-
 import { ILauncher } from '@jupyterlab/launcher';
-
 import { IDisposable } from '@lumino/disposable';
-
 import {SERVICE_DRIVE_URL} from './drive';
-
 import { URLExt } from '@jupyterlab/coreutils';
-
 import { INotebookTracker } from '@jupyterlab/notebook';
-
 import { addInsertDataImportCommand } from './commands';
+import { FILETYPE_TO_ICON } from './icons';
 
 const DRIVE_NAME = 'Figlinq';
+const REMOVE_LAUNCHER_COMMANDS = ['fileeditor:create-new', 'fileeditor:create-new-markdown-file'];
 
-const REMOVE_COMMANDS = ['fileeditor:create-new', 'fileeditor:create-new-markdown-file'];
 
-const noOpDisposable: IDisposable = {
-  isDisposed: false,
-  dispose: () => {
-    /* no-op */
-  }
-};
-// Define the custom implementation for _maybeOverWrite
+// Define the custom implementation for _maybeOverWrite to skip deleting the file in figlinq
 async function customMaybeOverWrite(this: any, path: string): Promise<void> {
   const body = this._trans.__(
     '"%1" already exists. Do you want to replace it?',
@@ -77,7 +52,18 @@ async function customMaybeOverWrite(this: any, path: string): Promise<void> {
 // Override the method on the prototype, bypassing the private visibility restriction
 (Context.prototype as any)._maybeOverWrite = customMaybeOverWrite;
 
-// Handle opening of files from URL parameters
+/**
+ * Loads a file from URL parameters and opens it in the document manager.
+ *
+ * @param commands - The command registry used to execute commands.
+ * @param widget - The widget whose model will be updated with the file's directory path.
+ *
+ * This function retrieves the file ID (fid) from the URL parameters. If the fid is present,
+ * it constructs a URL to fetch the file path associated with the fid. If the fetch request
+ * is successful, it opens the file using the document manager and updates the widget's model
+ * with the directory path of the file. If the fetch request fails or an error occurs while
+ * opening the file, an error dialog is displayed.
+ */
 const loadFileFromUrlParams = async (commands: any, widget: any) => {
   const urlParams = new URLSearchParams(window.parent.location.search);
   const fid = urlParams.get('fid') || '';
@@ -120,6 +106,18 @@ const loadFileFromUrlParams = async (commands: any, widget: any) => {
   }
 };
 
+/**
+ * Disables the default file browser in a JupyterFrontEnd application.
+ *
+ * This function attempts to find and dispose of the default file browser widget
+ * in the left sidebar of the JupyterLab interface. If the default file browser
+ * is found, it is disposed of and the remote contents browser is activated.
+ * If the default file browser is not found immediately, a periodic timer is
+ * used to check for the file browser every 100 milliseconds until it is found
+ * and handled.
+ *
+ * @param app - The JupyterFrontEnd application instance.
+ */
 const disableDefaultFileBrowser = (app: JupyterFrontEnd) => {
   const handleFileBrowser = () => {
     const widgets = toArray(app.shell.widgets('left'));
@@ -144,7 +142,16 @@ const disableDefaultFileBrowser = (app: JupyterFrontEnd) => {
   }
 }
 
-// Define our custom rename, to skip the drive check (gives an error when dropping onto root folder)
+/**
+ * Defines custom rename, to skip the drive check (which gives an error when dropping onto root folder).
+ *
+ * @param this - The context in which the function is called.
+ * @param path - The current path of the file or directory to be renamed.
+ * @param newPath - The new path for the file or directory.
+ * @returns A promise that resolves to the updated contents model with the new path.
+ *
+ * @throws Error if renaming files across different drives is attempted.
+ */
 async function customRename(this: any, path: string, newPath: string): Promise<any> {
   const [drive1, path1] = this._driveForPath(path);
   const [, path2] = this._driveForPath(newPath);
@@ -155,6 +162,28 @@ async function customRename(this: any, path: string, newPath: string): Promise<a
   // }
   return drive1.rename(path1, path2).then((contentsModel: Contents.IModel) => {
       return Object.assign(Object.assign({}, contentsModel), { path: this._toGlobalPath(drive1, path2) });
+  });
+}
+
+/**
+ * Register custom file types
+ * @param app The JupyterFrontEnd instance
+ * @returns void
+ * 
+**/
+function registerCustomFileType(app: JupyterFrontEnd) {
+    const registry = app.docRegistry;
+
+  // Add a custom file types from FILETYPE_TO_ICON object
+  Object.keys(FILETYPE_TO_ICON).forEach(fileType => {
+    const fileTypeData = FILETYPE_TO_ICON[fileType];
+    registry.addFileType({
+      name: fileTypeData.name,
+      displayName: fileTypeData.displayName,
+      mimeTypes: fileTypeData.mimeTypes,
+      extensions: fileTypeData.extensions,
+      icon: fileTypeData.icon,
+    });
   });
 }
 
@@ -170,15 +199,21 @@ const plugin: JupyterFrontEndPlugin<void> = {
     browser: IFileBrowserFactory,
     translator: ITranslator,
     launcher: ILauncher,
-    notebookTracker: INotebookTracker
+    notebookTracker: INotebookTracker,
   ) => {
-    const { serviceManager, commands } = app;
+    const { serviceManager, commands, docRegistry } = app;
     const { createFileBrowser } = browser;    
 
     const originalAdd = launcher.add;
     // Override the launcher.add method to filter out unwanted commands
     launcher.add = (options: ILauncher.IItemOptions) => {
-      if (REMOVE_COMMANDS.includes(options.command)) {
+      if (REMOVE_LAUNCHER_COMMANDS.includes(options.command)) {
+        const noOpDisposable: IDisposable = {
+          isDisposed: false,
+          dispose: () => {
+            /* no-op */
+          }
+        };
         return noOpDisposable; // Return a no-op disposable
       }
       // Call the original add method for other items
@@ -235,8 +270,23 @@ const plugin: JupyterFrontEndPlugin<void> = {
     widget.toolbar.insertItem(2, 'upload', uploader);
     widget.toolbar.insertItem(3, 'refresh', refreshButton);
     widget.toolbar.insertItem(4, 'search', searcher);
-
+    
     addInsertDataImportCommand(commands, notebookTracker, app, widget);
+    registerCustomFileType(app);
+
+    // Override the original getFileTypeForModel method to handle custom MIME types
+    const originalGetFileTypeForModel = docRegistry.getFileTypeForModel;
+    docRegistry.getFileTypeForModel = function (model: Partial<Contents.IModel>) {
+        const fileTypesArray = Array.from(this.fileTypes());
+        if (model.mimetype) {
+            const mimeMatch = fileTypesArray.find(ft => ft.mimeTypes.includes(model.mimetype!));
+            if (mimeMatch) {
+                return mimeMatch;
+            }
+        }
+        // Fallback to the original behavior
+        return originalGetFileTypeForModel.call(this, model);
+    };
 
     app.shell.add(widget, 'left');
     

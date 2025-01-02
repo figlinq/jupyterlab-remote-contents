@@ -699,6 +699,7 @@
               "import": false,
               "singleton": true
             },
+            "@mdi/js": {},
             "@types/node": {},
             "jupyterlab-remote-contents": {
               "version": "0.1.1",

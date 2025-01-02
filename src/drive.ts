@@ -4,6 +4,7 @@ import { ISignal, Signal } from '@lumino/signaling';
 import { PartialJSONObject } from '@lumino/coreutils';
 import { URLExt } from '@jupyterlab/coreutils';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
+import { FILETYPE_TO_ICON } from './icons';
 // import { showDialog, Dialog } from '@jupyterlab/apputils';
 
 /**
@@ -35,12 +36,6 @@ const FILETYPE_TO_TYPE: { [key: string]: string } = {
   'jupyter_notebook': 'notebook',
 };
 
-const FILETYPE_TO_MIMETYPE: Record<string, string> = {
-  "html_text": "text/html",
-  "grid": "application/json",
-  "jupyter_notebook": "application/x-ipynb+json",
-};
-
 const TYPE_TO_MIMETYPE: { [key: string]: string } = {
   'directory': 'application/x-directory',
   'file': 'text/plain',
@@ -52,7 +47,6 @@ const TYPE_TO_FORMAT: { [key: string]: Contents.FileFormat } = {
   'file': 'text',
   'notebook': 'json',
 };
-
 
 /**
  * A namespace for Drive statics.
@@ -986,9 +980,9 @@ namespace Private {
     if (!item) {
       throw new Error("Item is missing or undefined.");
     }
-  
-    const itemType = FILETYPE_TO_TYPE[item.filetype] || "file";
-    const mimetype = FILETYPE_TO_MIMETYPE[item.filetype || ""] || null;
+    const figlinqType = item?.category || item?.filetype;
+    const itemType = FILETYPE_TO_TYPE[figlinqType] || "file";
+    const mimetype = FILETYPE_TO_ICON[figlinqType || ""].mimeTypes[0] || null;
 
     const newLocalPath = localPath ? `${localPath}/${item.filename}` : item.filename;
   

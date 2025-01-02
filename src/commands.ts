@@ -4,9 +4,17 @@ import { JupyterFrontEnd } from '@jupyterlab/application';
 import { LabIcon } from '@jupyterlab/ui-components';
 import { FileBrowser } from '@jupyterlab/filebrowser';
 import { Drive } from './drive';
+import { showDialog, Dialog } from '@jupyterlab/apputils';
+import { Menu } from '@lumino/widgets';
+import { insertDataImportIconSvg, insertDataImportIconSvgDark } from './icons';
 
-const insertDataImportIconSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>code-block-tags</title><path d="M5.59 3.41L7 4.82L3.82 8L7 11.18L5.59 12.6L1 8L5.59 3.41M11.41 3.41L16 8L11.41 12.6L10 11.18L13.18 8L10 4.82L11.41 3.41M22 6V18C22 19.11 21.11 20 20 20H4C2.9 20 2 19.11 2 18V14H4V18H20V6H17.03V4H20C21.11 4 22 4.89 22 6Z" /></svg>';
-const insertDataImportIconSvgDark = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><title>code-block-tags</title><path d="M5.59 3.41L7 4.82L3.82 8L7 11.18L5.59 12.6L1 8L5.59 3.41M11.41 3.41L16 8L11.41 12.6L10 11.18L13.18 8L10 4.82L11.41 3.41M22 6V18C22 19.11 21.11 20 20 20H4C2.9 20 2 19.11 2 18V14H4V18H20V6H17.03V4H20C21.11 4 22 4.89 22 6Z" /></svg>';
+const showErrorDialog = (body:string, title:string) => {
+  showDialog({
+      title,
+      body,
+      buttons: [Dialog.okButton({ label: 'OK' })] 
+    });
+  }
 
 // Create a LabIcon instance
 const insertDataImportIcon = new LabIcon({
@@ -36,13 +44,15 @@ export function addInsertDataImportCommand(commands: CommandRegistry, notebookTr
         const pathStr = item.value.path;
         // Remove the drive name from the path
         const path = pathStr.split(':').slice(1).join(':');
-        console.log('Selected file path:', path);
 
         // Lookup the file
         const drive = new Drive();
         const file = await drive.lookup(path);
         if (!file) {
-          console.warn('File not found:', path);
+          showErrorDialog(`Failed to load file with path ${path}.`, 'File loading error');
+          return;
+        } else if (file.filetype !== 'grid') {
+          showErrorDialog('Only data grid contents can be currently imported.', 'Unsupported file type');
           return;
         }
         const parsedFid = file.fid.split(':')
@@ -51,7 +61,7 @@ export function addInsertDataImportCommand(commands: CommandRegistry, notebookTr
         // Get the active notebook
         const currentNotebook = notebookTracker.currentWidget;
         if (!currentNotebook) {
-          console.warn('No active notebook found!');
+          showErrorDialog('Please create or open a notebook before executing this action.', 'No notebook open');
           return;
         }
 
@@ -59,7 +69,7 @@ export function addInsertDataImportCommand(commands: CommandRegistry, notebookTr
         const notebook = notebookPanel.content;
 
         // Insert code into the active cell or create a new cell
-        const codeToInsert = `# Load data from ${file.filename} to Pandas dataframe\nimport pyodide_http\nimport pandas as pd\npyodide_http.patch_all()\ndata = pd.read_csv('${URL}')\ndata.head()`;
+        const codeToInsert = `# Patch http requests (required for importing data into Python execution environment) \nimport pyodide_http\npyodide_http.patch_all()\n# Load data from ${file.filename} to Pandas dataframe\nimport pandas as pd\ndata = pd.read_csv('${URL}')\ndata.head()`;
 
         if (notebook.activeCell) {
           // Ensure the active cell's model is properly accessed
@@ -84,9 +94,21 @@ export function addInsertDataImportCommand(commands: CommandRegistry, notebookTr
       }
     });
 
+    // Create a new sub-menu
+    const subMenu = new Menu({ commands });
+    subMenu.title.label = 'Figlinq Actions'; // Name of the pull-down menu
+    subMenu.addItem({ command }); // Add the command to the sub-menu
+
+  // Add the sub-menu to the context menu
     app.contextMenu.addItem({
-      command,
-      selector: '.jp-DirListing-item',
-      rank: 10,
+      type: 'separator', // Add a divider
+      selector: '.jp-DirListing-item', // Ensure it appears in the same context
+      rank: 9.9, // Choose a rank slightly less than the submenu to place it before
+    });
+    app.contextMenu.addItem({
+        type: 'submenu', // Indicate it's a sub-menu
+        submenu: subMenu, // Attach the sub-menu
+        selector: '.jp-DirListing-item', // Selector for the context menu item
+        rank: 10, // Rank in the context menu
     });
   }
