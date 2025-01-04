@@ -2,34 +2,15 @@ import { CommandRegistry } from '@lumino/commands';
 import { NotebookPanel, NotebookActions, INotebookTracker } from '@jupyterlab/notebook';
 import { JupyterFrontEnd } from '@jupyterlab/application';
 import { FileBrowser } from '@jupyterlab/filebrowser';
-import { Drive } from './drive';
 import { showDialog, Dialog } from '@jupyterlab/apputils';
 import { Menu } from '@lumino/widgets';
-import { createIcon } from './icons';
 import { mdiViewGridPlusOutline } from '@mdi/js';
 
+import { createIcon, createFiglinqIcon } from './icons';
+import { Drive } from './drive';
+import { SNIPPETS } from './snippets';
+
 const ORIGIN = window.parent.location.origin;
-
-const SNIPPETS = {
-installChartStudio: `# Patch http requests (required for importing data into Python execution environment)
-import pyodide_http
-pyodide_http.patch_all()
-
-# Install Chart Studio package to interact with Figlinq datasets and charts
-%pip install chart_studio
-
-# Import required libraries
-import chart_studio
-
-# Set credentials and privacy settings
-chart_studio.tools.set_config_file(
-    plotly_domain='${ORIGIN}',
-    plotly_api_domain='${ORIGIN}',
-    world_readable=False,
-    sharing='private'
-)
-chart_studio.tools.set_credentials_file(username='YOUR_USERNAME', api_key='YOUR_API_KEY')`,
-}
 
 const showErrorDialog = (body:string, title:string) => {
   showDialog({
@@ -106,20 +87,13 @@ async function insertDataImportCode(
   insertCode({ commands, notebookTracker, app, widget }, { snippet });
 }
 
-const FIGLINQ_COMMANDS = [
+const CONTEXT_MENU_COMMANDS = [
   {
     'command': 'filebrowser:fq-insert-data-import-code',
-    'label': 'Add Data Import Code',
+    'label': 'Import Data to Pandas Dataframe',
     'icon': mdiViewGridPlusOutline,
     'execute': insertDataImportCode,
   },
-  {
-    'command': 'filebrowser:fq-insert-install-cs-code',
-    'label': 'Add Package To Interact With Figlinq',
-    'icon': mdiViewGridPlusOutline,
-    'execute': insertCode,
-    'args': { snippet: SNIPPETS.installChartStudio }
-  }
 ];
 
 export function addContextMenuCommands(commands: CommandRegistry, notebookTracker: INotebookTracker, app: JupyterFrontEnd, widget: FileBrowser) {
@@ -132,12 +106,13 @@ export function addContextMenuCommands(commands: CommandRegistry, notebookTracke
   }
 
   // Add commands from COMMANDS
-  FIGLINQ_COMMANDS.forEach(({command, label, icon, execute, args}) => {
+  CONTEXT_MENU_COMMANDS.forEach(({ command, label, icon, execute }) => {
+    const iconName = command + '-icon';
     commands.addCommand(command, {
       label: label,
-      icon: createIcon(icon),
+      icon: createIcon(iconName, icon),
       execute: () => {
-        execute(infra, args);
+        execute(infra);
       }
     });
   });
@@ -146,7 +121,7 @@ export function addContextMenuCommands(commands: CommandRegistry, notebookTracke
   const subMenu = new Menu({ commands });
   subMenu.title.label = 'Figlinq Actions'; // Name of the pull-down menu
 
-  FIGLINQ_COMMANDS.forEach((item) => {
+  CONTEXT_MENU_COMMANDS.forEach((item) => {
     subMenu.addItem({ command: item.command });
   });
 
@@ -162,5 +137,90 @@ export function addContextMenuCommands(commands: CommandRegistry, notebookTracke
       submenu: subMenu, // Attach the sub-menu
       selector: '.jp-DirListing-item', // Selector for the context menu item
       rank: 10, // Rank in the context menu
+  });
+}
+
+// #######################################
+
+import { ToolbarButton } from '@jupyterlab/apputils';
+
+const TOOLBAR_MENU_COMMANDS = [
+    {
+      command: 'notebook:fq-insert-chart-studio-import',
+      label: 'Import packages to interact with Figlinq',
+      'execute': insertCode,
+      'args': { snippet: SNIPPETS.installChartStudio }
+    },
+    {
+      command: 'notebook:fq-insert-http-patch',
+      label: 'Patch http requests to interact with external contents',
+      'execute': insertCode,
+      'args': { snippet: SNIPPETS.patchHttp }
+    },
+    // {
+    //   command: 'notebook:fq-clear-all-cells',
+    //   label: 'Clear All Cells',
+    //   execute: () => {
+    //     const currentNotebook = notebookTracker.currentWidget?.content;
+    //     if (currentNotebook) {
+    //       NotebookActions.clearAllOutputs(currentNotebook);
+    //     }
+    //   }
+    // },
+    // {
+    //   command: 'notebook:fq-run-all-cells',
+    //   label: 'Run All Cells',
+    //   execute: () => {
+    //     const currentNotebook = notebookTracker.currentWidget?.content;
+    //     if (currentNotebook) {
+    //       NotebookActions.runAll(currentNotebook);
+    //     }
+    //   }
+    // }
+];
+  
+export function addNotebookToolbarMenu(
+  commands: CommandRegistry,
+  notebookTracker: INotebookTracker,
+  app: JupyterFrontEnd,
+) {
+  // Define the commands for the pull-down menu
+  
+
+  // Register the commands
+  TOOLBAR_MENU_COMMANDS.forEach(({ command, label, execute, args}) => {
+    commands.addCommand(command, {
+      label,
+      execute: () => {
+        const widget = app.shell.currentWidget as FileBrowser;
+        execute({ commands, notebookTracker, app, widget }, args);
+      }
+    });
+  });
+
+  // Create a drop-down menu
+  const menu = new Menu({ commands });
+  TOOLBAR_MENU_COMMANDS.forEach(({ command }) => {
+    menu.addItem({ command });
+  });
+
+  // Create a toolbar button that opens the menu
+  const menuButton = new ToolbarButton({
+    label: 'Figlinq Actions',
+    onClick: () => {
+      menu.open(
+        menuButton.node.getBoundingClientRect().x,
+        menuButton.node.getBoundingClientRect().bottom
+      );
+    },
+    icon: createFiglinqIcon(),
+  });
+
+  // Add the toolbar button to the notebook toolbar
+  app.docRegistry.addWidgetExtension('Notebook', {
+    createNew: (panel: NotebookPanel) => {
+      panel.toolbar.insertItem(11,'figlinq-menu', menuButton);
+      return undefined;
+    }
   });
 }
