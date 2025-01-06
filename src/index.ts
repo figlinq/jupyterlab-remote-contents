@@ -20,6 +20,21 @@ import { getFileTypeToIcon } from './icons';
 const DRIVE_NAME = 'Figlinq';
 const REMOVE_LAUNCHER_COMMANDS = ['fileeditor:create-new', 'fileeditor:create-new-markdown-file'];
 
+// Iframe communication
+// const callParent = (action:string) =>
+//   new Promise((res, rej) => {
+//     const channel = new MessageChannel();
+//     channel.port1.onmessage = ({data}) => {
+//       channel.port1.close();
+//       if (data.error) {
+//         rej(data.error);
+//       } else {
+//         res(data.result);
+//       }
+//     };
+//     parent.postMessage([action], '*', [channel.port2]);
+//   });
+
 // Define the custom implementation for _maybeOverWrite to skip deleting the file in figlinq
 async function customMaybeOverWrite(this: any, path: string): Promise<void> {
   const body = this._trans.__(

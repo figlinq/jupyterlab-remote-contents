@@ -53,15 +53,15 @@
     "watch:labextension": "jupyter labextension watch ."
   },
   "dependencies": {
-    "@jupyterlab/application": "^4.3.4",
-    "@jupyterlab/apputils": "^4.4.4",
-    "@jupyterlab/filebrowser": "^4.3.4",
-    "@jupyterlab/launcher": "^4.3.4",
-    "@jupyterlab/notebook": "^4.3.4",
-    "@jupyterlab/services": "^7.3.4",
-    "@jupyterlab/settingregistry": "^4.3.4",
-    "@jupyterlab/translation": "^4.3.4",
-    "@jupyterlab/ui-components": "^4.3.4",
+    "@jupyterlab/application": "^4.0.7",
+    "@jupyterlab/apputils": "^4.1.7",
+    "@jupyterlab/filebrowser": "^4.0.7",
+    "@jupyterlab/launcher": "^4.0.7",
+    "@jupyterlab/notebook": "^4.0.7",
+    "@jupyterlab/services": "^7.0.7",
+    "@jupyterlab/settingregistry": "^4.0.7",
+    "@jupyterlab/translation": "^4.0.7",
+    "@jupyterlab/ui-components": "^4.0.7",
     "@mdi/js": "^7.4.47",
     "@types/node": "20.9.0"
   },
@@ -94,7 +94,7 @@
     "extension": true,
     "outputDir": "jupyterlab_remote_contents/labextension",
     "_build": {
-      "load": "static/remoteEntry.f7f183b6b7011a517c04.js",
+      "load": "static/remoteEntry.4a79a67ee32e0a4ccd71.js",
       "extension": "./extension",
       "style": "./style"
     }
