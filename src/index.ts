@@ -4,18 +4,21 @@ import { IFileBrowserFactory, Uploader } from '@jupyterlab/filebrowser';
 import { ITranslator } from '@jupyterlab/translation';
 import { FilenameSearcher, IScore, folderIcon, newFolderIcon, refreshIcon } from '@jupyterlab/ui-components';
 import { ServerConnection } from './serverconnection';
-import { Drive } from './drive';
 import { toArray } from '@lumino/algorithm';
 import { Contents } from '@jupyterlab/services';
 import { Context } from '@jupyterlab/docregistry';
 import { showDialog, Dialog } from '@jupyterlab/apputils';
 import { ILauncher } from '@jupyterlab/launcher';
 import { IDisposable } from '@lumino/disposable';
-import {SERVICE_DRIVE_URL} from './drive';
 import { URLExt } from '@jupyterlab/coreutils';
 import { INotebookTracker } from '@jupyterlab/notebook';
 import { addContextMenuCommands, addNotebookToolbarMenu } from './commands';
 import { getFileTypeToIcon } from './icons';
+import { IDocumentManager } from '@jupyterlab/docmanager';
+import { InputDialog } from '@jupyterlab/apputils';
+
+import { Drive } from './drive';
+import { SERVICE_DRIVE_URL } from './drive';
 
 const DRIVE_NAME = 'Figlinq';
 const REMOVE_LAUNCHER_COMMANDS = ['fileeditor:create-new', 'fileeditor:create-new-markdown-file'];
@@ -159,46 +162,32 @@ const disableDefaultFileBrowser = (app: JupyterFrontEnd) => {
 }
 
 /**
- * Defines custom rename, to skip the drive check (which gives an error when dropping onto root folder).
+ * Custom implementation of the _driveForPath method to use the custom drive only.
  *
- * @param this - The context in which the function is called.
- * @param path - The current path of the file or directory to be renamed.
- * @param newPath - The new path for the file or directory.
- * @returns A promise that resolves to the updated contents model with the new path.
- *
- * @throws Error if renaming files across different drives is attempted.
+ * @param path - The path for which the drive is to be determined.
+ * @returns A tuple containing the custom drive and the local path.
  */
-async function customRename(this: any, path: string, newPath: string): Promise<any> {
-  const [drive1, path1] = this._driveForPath(path);
-  const [, path2] = this._driveForPath(newPath);
-  console.log('Custom rename called');
-  console.log('Path:', path);
-  
-  // Disable the drive check, we only have one drive
-  // if (drive1 !== drive2 && newPath !== '') {
-  //     throw Error('ContentsManager: renaming files must occur within a Drive');
-  // }
-  return drive1.rename(path1, path2).then((contentsModel: Contents.IModel) => {
-      return Object.assign(Object.assign({}, contentsModel), { path: this._toGlobalPath(drive1, path2) });
-  });
+function customDriveForPath(this: any, path: string): [Contents.IDrive, string] {
+  const localPath = this.localPath(path);
+  return [this._additionalDrives.get(DRIVE_NAME), localPath];
 }
 
-async function customSave(this: any, path: string, options: Partial<Contents.IModel>): Promise<any> {
-  console.log('Custom save called');
-  console.log('Path:', path);
-  console.log('Options:', options);
-  const globalPath = this.normalize(path);
-  console.log('Global path:', globalPath);
-  const [drive, localPath] = this._driveForPath(`${DRIVE_NAME}:${path}`);
-  return drive
-      .save(localPath, { ...options, path: localPath })
-      .then((contentsModel: Contents.IModel) => {
-      return {
-          ...contentsModel,
-          path: globalPath,
-          serverPath: contentsModel.path
-      };
-  });
+/**
+ * Patch the InputDialog.getText method to remove the drive name from the text field
+ */
+function patchInputDialog() {
+  const originalGetText = InputDialog.getText;
+  // Override the getText function
+  InputDialog.getText = function (options) {
+    // Check if the 'text' starts with your drive name (e.g., 'Figlinq:')
+    if (options.text?.startsWith(`${DRIVE_NAME}:`)) {
+      const regex = new RegExp(`^${DRIVE_NAME}:`);
+      options.text = options.text.replace(regex, ''); // Removes 'Figlinq:' from the start
+    }
+
+    // Call the original getText function with modified options
+    return originalGetText(options);
+  };
 }
 
 /**
@@ -230,7 +219,7 @@ function registerCustomFileTypes(app: JupyterFrontEnd) {
  */
 const plugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab-remote-contents:plugin',
-  requires: [IFileBrowserFactory, ITranslator, ILauncher, INotebookTracker],
+  requires: [IFileBrowserFactory, ITranslator, ILauncher, INotebookTracker, IDocumentManager],
   autoStart: true,
   activate: async (
     app: JupyterFrontEnd,
@@ -238,9 +227,10 @@ const plugin: JupyterFrontEndPlugin<void> = {
     translator: ITranslator,
     launcher: ILauncher,
     notebookTracker: INotebookTracker,
+    docManager: IDocumentManager
   ) => {
     const { serviceManager, commands, docRegistry } = app;
-    const { createFileBrowser } = browser;    
+    const { createFileBrowser } = browser;
 
     function getSessionDataWithTimeout() {
       return new Promise((resolve, reject) => {
@@ -260,6 +250,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
       }, 200);
       });
     }
+
     let sessionData;
     try {
       sessionData = await getSessionDataWithTimeout();
@@ -365,9 +356,11 @@ const plugin: JupyterFrontEndPlugin<void> = {
     
     loadFileFromUrlParams(commands, widget);
     disableDefaultFileBrowser(app);
-    // Override the original rename command with our custom version to avoid drive check
-    (serviceManager.contents as any).rename = customRename.bind(serviceManager.contents);
-    (serviceManager.contents as any).save = customSave.bind(serviceManager.contents);
+
+    // Patch the input dialog to remove the drive name from the text field
+    patchInputDialog();
+    // Override the _driveForPath command to use our custom drive only
+    (serviceManager.contents as any)._driveForPath = customDriveForPath.bind(serviceManager.contents);
   }
 };
 

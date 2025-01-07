@@ -315,7 +315,7 @@ namespace Private {
       }
     }
 
-    request.headers.append('plotly-client-platform', 'web - jupyterlite');
+    request.headers.append('plotly-client-platform', 'web - jupyterlab');
 
     // Set the content type if there is no given data and we are
     // using an authenticated connection.

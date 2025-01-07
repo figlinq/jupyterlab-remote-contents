@@ -10,8 +10,8 @@
         {
           "test": "/(?<!\\.raw)\\.css$/",
           "use": [
-            "/home/przemek/jupyterlab-remote-contents/node_modules/style-loader/dist/cjs.js",
-            "/home/przemek/jupyterlab-remote-contents/node_modules/css-loader/dist/cjs.js"
+            "/home/przemek/github/jupyterlab-remote-contents/node_modules/style-loader/dist/cjs.js",
+            "/home/przemek/github/jupyterlab-remote-contents/node_modules/css-loader/dist/cjs.js"
           ]
         },
         {
@@ -81,7 +81,7 @@
           "test": "/\\.js$/",
           "enforce": "pre",
           "use": [
-            "/home/przemek/jupyterlab-remote-contents/node_modules/source-map-loader/dist/cjs.js"
+            "/home/przemek/github/jupyterlab-remote-contents/node_modules/source-map-loader/dist/cjs.js"
           ]
         }
       ]
@@ -91,8 +91,8 @@
         "url": false,
         "buffer": false,
         "crypto": false,
-        "path": "/home/przemek/jupyterlab-remote-contents/node_modules/path-browserify/index.js",
-        "process": "/home/przemek/jupyterlab-remote-contents/node_modules/process/browser.js"
+        "path": "/home/przemek/github/jupyterlab-remote-contents/node_modules/path-browserify/index.js",
+        "process": "/home/przemek/github/jupyterlab-remote-contents/node_modules/process/browser.js"
       }
     },
     "watchOptions": {
@@ -102,7 +102,7 @@
     "output": {
       "hashFunction": "sha256",
       "filename": "[name].[contenthash].js",
-      "path": "/home/przemek/jupyterlab-remote-contents/jupyterlab_remote_contents/labextension/static",
+      "path": "/home/przemek/github/jupyterlab-remote-contents/jupyterlab_remote_contents/labextension/static",
       "publicPath": "auto"
     },
     "plugins": [
@@ -123,9 +123,9 @@
           },
           "filename": "remoteEntry.[contenthash].js",
           "exposes": {
-            "./index": "/home/przemek/jupyterlab-remote-contents/lib/index.js",
-            "./extension": "/home/przemek/jupyterlab-remote-contents/lib/index.js",
-            "./style": "/home/przemek/jupyterlab-remote-contents/style/index.js"
+            "./index": "/home/przemek/github/jupyterlab-remote-contents/lib/index.js",
+            "./extension": "/home/przemek/github/jupyterlab-remote-contents/lib/index.js",
+            "./style": "/home/przemek/github/jupyterlab-remote-contents/style/index.js"
           },
           "shared": {
             "@jupyterlab/application": {
@@ -704,7 +704,7 @@
             "jupyterlab-remote-contents": {
               "version": "0.1.1",
               "singleton": true,
-              "import": "/home/przemek/jupyterlab-remote-contents/lib/index.js"
+              "import": "/home/przemek/github/jupyterlab-remote-contents/lib/index.js"
             }
           }
         }
