@@ -21,19 +21,19 @@ const DRIVE_NAME = 'Figlinq';
 const REMOVE_LAUNCHER_COMMANDS = ['fileeditor:create-new', 'fileeditor:create-new-markdown-file'];
 
 // Iframe communication
-// const callParent = (action:string) =>
-//   new Promise((res, rej) => {
-//     const channel = new MessageChannel();
-//     channel.port1.onmessage = ({data}) => {
-//       channel.port1.close();
-//       if (data.error) {
-//         rej(data.error);
-//       } else {
-//         res(data.result);
-//       }
-//     };
-//     parent.postMessage([action], '*', [channel.port2]);
-//   });
+const callParent = (action:string): Promise<{currentUser:string}> =>
+  new Promise((res, rej) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = ({data}) => {
+      channel.port1.close();
+      if (data.error) {
+        rej(data.error);
+      } else {
+        res(data.result);
+      }
+    };
+    parent.postMessage([action], '*', [channel.port2]);
+  });
 
 // Define the custom implementation for _maybeOverWrite to skip deleting the file in figlinq
 async function customMaybeOverWrite(this: any, path: string): Promise<void> {
@@ -117,6 +117,8 @@ const loadFileFromUrlParams = async (commands: any, widget: any) => {
       }
     }
     widget.model.cd(cdPath);
+  } else {
+    widget.model.cd('/');
   }
 };
 
@@ -169,6 +171,8 @@ const disableDefaultFileBrowser = (app: JupyterFrontEnd) => {
 async function customRename(this: any, path: string, newPath: string): Promise<any> {
   const [drive1, path1] = this._driveForPath(path);
   const [, path2] = this._driveForPath(newPath);
+  console.log('Custom rename called');
+  console.log('Path:', path);
   
   // Disable the drive check, we only have one drive
   // if (drive1 !== drive2 && newPath !== '') {
@@ -176,6 +180,24 @@ async function customRename(this: any, path: string, newPath: string): Promise<a
   // }
   return drive1.rename(path1, path2).then((contentsModel: Contents.IModel) => {
       return Object.assign(Object.assign({}, contentsModel), { path: this._toGlobalPath(drive1, path2) });
+  });
+}
+
+async function customSave(this: any, path: string, options: Partial<Contents.IModel>): Promise<any> {
+  console.log('Custom save called');
+  console.log('Path:', path);
+  console.log('Options:', options);
+  const globalPath = this.normalize(path);
+  console.log('Global path:', globalPath);
+  const [drive, localPath] = this._driveForPath(`${DRIVE_NAME}:${path}`);
+  return drive
+      .save(localPath, { ...options, path: localPath })
+      .then((contentsModel: Contents.IModel) => {
+      return {
+          ...contentsModel,
+          path: globalPath,
+          serverPath: contentsModel.path
+      };
   });
 }
 
@@ -210,7 +232,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab-remote-contents:plugin',
   requires: [IFileBrowserFactory, ITranslator, ILauncher, INotebookTracker],
   autoStart: true,
-  activate: (
+  activate: async (
     app: JupyterFrontEnd,
     browser: IFileBrowserFactory,
     translator: ITranslator,
@@ -220,6 +242,39 @@ const plugin: JupyterFrontEndPlugin<void> = {
     const { serviceManager, commands, docRegistry } = app;
     const { createFileBrowser } = browser;    
 
+    function getSessionDataWithTimeout() {
+      return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        clearInterval(interval);
+        reject(new Error('Session data retrieval timed out'));
+      }, 5000);
+
+      const interval = setInterval(async () => {
+        const sessionData = await callParent('getSessionData');
+        const currentUser = sessionData?.currentUser;
+        if (currentUser !== null) {
+        clearTimeout(timeout);
+        clearInterval(interval);
+        resolve(sessionData);
+        }
+      }, 200);
+      });
+    }
+    let sessionData;
+    try {
+      sessionData = await getSessionDataWithTimeout();
+      console.log('Session data:', sessionData);
+    } catch (error) {
+      showDialog({
+        title: 'Session Error',
+        body: 'Failed to retrieve session data within the timeout period.',
+        buttons: [Dialog.okButton({ label: 'OK' })]
+      }).then(() => {
+        window.location.href = '/login';
+      });
+    }
+
+    console.log('Session data:', sessionData);
 
     const originalAdd = launcher.add;
     // Override the launcher.add method to filter out unwanted commands
@@ -312,6 +367,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
     disableDefaultFileBrowser(app);
     // Override the original rename command with our custom version to avoid drive check
     (serviceManager.contents as any).rename = customRename.bind(serviceManager.contents);
+    (serviceManager.contents as any).save = customSave.bind(serviceManager.contents);
   }
 };
 

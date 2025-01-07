@@ -34,6 +34,7 @@ const FILETYPE_TO_TYPE: { [key: string]: string } = {
   'plot': 'file',
   'external_image': 'file',
   'jupyter_notebook': 'notebook',
+  "external_file": 'file',
 };
 
 const TYPE_TO_MIMETYPE: { [key: string]: string } = {
@@ -1002,13 +1003,19 @@ namespace Private {
     validateProperty(model, 'last_modified', 'string');
   }
 
-  function transformItem(item: any, localPath: string ): any {
+  function transformItem(item: any, localPath: string): any {
     if (!item) {
       throw new Error("Item is missing or undefined.");
     }
     const figlinqType = item?.category || item?.filetype;
     const itemType = FILETYPE_TO_TYPE[figlinqType] || "file";
-    const mimetype = FILETYPE_TO_ICON[figlinqType || ""].mimeTypes[0] || null;
+
+    let mimetype;
+    if (item?.content_type)
+      mimetype = item.content_type;
+    else {
+      mimetype = FILETYPE_TO_ICON[figlinqType || ""].mimeTypes[0] || null;
+    }
 
     const newLocalPath = localPath ? `${localPath}/${item.filename}` : item.filename;
   
@@ -1031,7 +1038,6 @@ namespace Private {
   // export function convertToJupyterApi(plotlyObject: any, fileType: string | undefined, fileName: string | null, action: string, localPath: string, lookup: any ): any {
   export function convertToJupyterApi(convOptions: any ): any {
     // console.log('convertToJupyterApi start', convOptions);
-
     const {data, type, name, path, created, last_modified} = convOptions;
     const mimetype = TYPE_TO_MIMETYPE[type || ""] || null;
     let format = TYPE_TO_FORMAT[type || ""] || null;
