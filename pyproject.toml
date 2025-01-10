@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.4.0", "jupyterlab>=3.4.7,<4.0.0", "hatch-nodejs-version"]
+requires = ["hatchling>=1.4.0", "jupyterlab>=3.4.7", "hatch-nodejs-version"]
 build-backend = "hatchling.build"
 
 [project]
@@ -48,7 +48,7 @@ ensured-targets = [
     "jupyterlab_remote_contents/labextension/static/style.js",
     "jupyterlab_remote_contents/labextension/package.json",
 ]
-skip-if-exists = ["jupyterlab_remote_contents/labextension/static/style.js"]
+# skip-if-exists = ["jupyterlab_remote_contents/labextension/static/style.js"]
 
 [tool.hatch.build.hooks.jupyter-builder.build-kwargs]
 build_cmd = "build:prod"
@@ -69,6 +69,3 @@ before-build-python = ["jlpm clean:all"]
 
 [tool.check-wheel-contents]
 ignore = ["W002"]
-
-[project.entry-points."jupyter_server_extension"]
-jupyterlab_remote_contents = "jupyterlab_remote_contents"
