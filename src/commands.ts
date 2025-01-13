@@ -80,9 +80,53 @@ async function insertDataImportCode(
     return;
   }
   const parsedFid = file.fid.split(':')
-  const URL = ORIGIN + '/~' + parsedFid[0] + '/' + parsedFid[1] + '.csv';
-  const snippet = `# Patch http requests (required for importing data into Python execution environment) \nimport pyodide_http\npyodide_http.patch_all()\n# Load data from ${file.filename} to Pandas dataframe\nimport pandas as pd\ndata = pd.read_csv('${URL}')\ndata.head()`;
+  const URL =
+    ORIGIN.replace("https", "http") +
+    "/~" +
+    parsedFid[0] +
+    "/" +
+    parsedFid[1] +
+    ".csv".replace("https", "http");
+  const snippet = `%pip install pandas\n\nimport requests\nimport pandas as pd\nfrom io import StringIO\n\n# Get data from file ${file.filename}\nresponse = requests.get("${URL}")\ncsv_data = StringIO(response.text)\n# Load the CSV data into a pandas DataFrame\ndf = pd.read_csv(csv_data)\ndf.head()`;
 
+  // Insert the code into the active cell
+  insertCode({ commands, notebookTracker, app, widget }, { snippet });
+}
+
+async function insertFileUrl(
+  { commands, notebookTracker, app, widget }:
+    { commands: CommandRegistry, notebookTracker: INotebookTracker, app: JupyterFrontEnd, widget: FileBrowser }) {
+  const item = widget.selectedItems().next();
+  if (!item) {
+    return;
+  }
+  const pathStr = item.value.path;
+  // Remove the drive name from the path
+  const path = pathStr.split(":").slice(1).join(":");
+  // Lookup the file
+  const drive = new Drive();
+  const file = await drive.lookup(path);
+  if (!file) {
+    showErrorDialog(
+      `Failed to load file with path ${path}.`,
+      "File loading error"
+    );
+    return;
+  } else if (file.filetype !== "grid") {
+    showErrorDialog(
+      "Only data grid contents can be currently imported.",
+      "Unsupported file type"
+    );
+    return;
+  }
+  const parsedFid = file.fid.split(":");
+  const snippet =
+    ORIGIN.replace("https", "http") +
+    "/~" +
+    parsedFid[0] +
+    "/" +
+    parsedFid[1] +
+    ".csv";
   // Insert the code into the active cell
   insertCode({ commands, notebookTracker, app, widget }, { snippet });
 }
@@ -93,6 +137,12 @@ const CONTEXT_MENU_COMMANDS = [
     'label': 'Import Data to Pandas Dataframe',
     'icon': mdiViewGridPlusOutline,
     'execute': insertDataImportCode,
+  },
+  {
+    'command': 'filebrowser:fq-insert-file-url',
+    'label': 'Insert File URL',
+    'icon': mdiViewGridPlusOutline,
+    'execute': insertFileUrl,
   },
 ];
 

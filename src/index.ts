@@ -22,6 +22,7 @@ import { SERVICE_DRIVE_URL } from './drive';
 
 const DRIVE_NAME = 'Figlinq';
 const REMOVE_LAUNCHER_COMMANDS = ['fileeditor:create-new', 'fileeditor:create-new-markdown-file'];
+const ORIGIN = window.parent.location.origin;
 
 // Iframe communication
 const callParent = (action:string): Promise<{currentUser:string}> =>
@@ -252,20 +253,22 @@ const plugin: JupyterFrontEndPlugin<void> = {
     }
 
     let sessionData;
-    try {
-      sessionData = await getSessionDataWithTimeout();
+    if (ORIGIN !== 'https://plotly.local') {
+      try {
+        sessionData = await getSessionDataWithTimeout();
+        console.log('Session data:', sessionData);
+      } catch (error) {
+        showDialog({
+          title: 'Session Error',
+          body: 'Failed to retrieve session data within the timeout period.',
+          buttons: [Dialog.okButton({ label: 'OK' })]
+        }).then(() => {
+          window.location.href = '/login';
+        });
+      }
       console.log('Session data:', sessionData);
-    } catch (error) {
-      showDialog({
-        title: 'Session Error',
-        body: 'Failed to retrieve session data within the timeout period.',
-        buttons: [Dialog.okButton({ label: 'OK' })]
-      }).then(() => {
-        window.location.href = '/login';
-      });
     }
 
-    console.log('Session data:', sessionData);
 
     const originalAdd = launcher.add;
     // Override the launcher.add method to filter out unwanted commands

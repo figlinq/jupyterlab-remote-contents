@@ -1,6 +1,6 @@
 {
   "name": "jupyterlab-remote-contents",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Access remote files through a Jupyter server",
   "keywords": [
     "jupyter",
@@ -94,7 +94,7 @@
     "extension": true,
     "outputDir": "jupyterlab_remote_contents/labextension",
     "_build": {
-      "load": "static/remoteEntry.d8ea4abcdaef3e5e114d.js",
+      "load": "static/remoteEntry.628f4bb829540bb10ccc.js",
       "extension": "./extension",
       "style": "./style"
     }
